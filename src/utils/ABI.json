@@ -1,0 +1,21 @@
+[
+  {
+    "inputs": [
+      { "internalType": "string", "name": "eventName", "type": "string" }
+    ],
+    "name": "createEvent",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "uint256", "name": "eventId", "type": "uint256" },
+      { "internalType": "string", "name": "seatId", "type": "string" }
+    ],
+    "name": "bookSeat",
+    "outputs": [],
+    "stateMutability": "payable",
+    "type": "function"
+  }
+]
