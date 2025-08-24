@@ -1,322 +1,296 @@
-import React, { useState, useEffect } from "react";
-import Dashboard from "../components/Dashboard";
-import { useAccount } from "wagmi";
-import { useNavigate } from "react-router-dom";
-
-// Featured carousel NFTs
-const FEATURED_NFTS = [
-  {
-    id: "featured1",
-    name: "Crypto Music Fest 2025",
-    image: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=600&h=400&fit=crop",
-    price: 0.8,
-    collection: "Music Events",
-    verified: true
-  },
-  {
-    id: "featured2", 
-    name: "Digital Art Expo Premium",
-    image: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&h=400&fit=crop",
-    price: 1.2,
-    collection: "Art Exhibitions",
-    verified: true
-  },
-  {
-    id: "featured3",
-    name: "Web3 Conference VIP",
-    image: "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=600&h=400&fit=crop",
-    price: 2.5,
-    collection: "Tech Conferences", 
-    verified: true
-  }
-];
-
-const TRENDING = [
-  {
-    id: "e1",
-    name: "Crypto Music Fest 2025",
-    image: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=600&h=400&fit=crop",
-    floor: 0.8,
-    volume: 120.5,
-    items: 1000,
-    verified: true
-  },
-  {
-    id: "e2", 
-    name: "Digital Art Expo",
-    image: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&h=400&fit=crop",
-    floor: 0.3,
-    volume: 75.2,
-    items: 500,
-    verified: true
-  },
-  {
-    id: "e3",
-    name: "Web3 Conference",
-    image: "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=600&h=400&fit=crop",
-    floor: 1.2,
-    volume: 210.8,
-    items: 750,
-    verified: true
-  }
-];
-
-const FRESH = [
-  {
-    id: "e4",
-    name: "Rock Night Live",
-    image: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=600&h=400&fit=crop",
-    date: "2025-09-10",
-    status: "upcoming",
-    verified: false
-  },
-  {
-    id: "e5",
-    name: "Indie Jam Session", 
-    image: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=600&h=400&fit=crop",
-    date: "2025-09-15",
-    status: "minting",
-    verified: true
-  },
-  {
-    id: "e6",
-    name: "Electronic Dreams",
-    image: "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=600&h=400&fit=crop",
-    date: "2025-09-20",
-    status: "upcoming",
-    verified: true
-  }
-];
+import React, { useState, useEffect } from 'react';
+import { useAccount } from 'wagmi';
+import { BrowserProvider, Contract, formatEther } from 'ethers';
+import { Link } from 'react-router-dom';
+import { CONTRACT_ADDRESSES, EVENT_FACTORY_ABI, EVENT_TICKET_ABI } from '../lib/contracts';
+import { sampleCollections } from '../utils/sampleAssets';
 
 export default function Home() {
-  const { address } = useAccount();
-  const navigate = useNavigate();
-  const [currentFeatured, setCurrentFeatured] = useState(0);
+  const { address, isConnected } = useAccount();
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(false);
 
-  // Carousel rotation
   useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentFeatured(prev => (prev + 1) % FEATURED_NFTS.length);
-    }, 3000);
-    return () => clearInterval(interval);
-  }, []);
+    if (isConnected) {
+      fetchEvents();
+    }
+  }, [isConnected]);
 
-  const handleExplore = () => {
-    navigate("/auction");
-  };
+  const fetchEvents = async () => {
+    setLoading(true);
+    try {
+      const provider = new BrowserProvider(window.ethereum);
+      const eventFactory = new Contract(CONTRACT_ADDRESSES.EVENT_FACTORY, EVENT_FACTORY_ABI, provider);
 
-  const handleViewCollection = (eventId) => {
-    navigate(`/event/${eventId}`);
+      const eventAddresses = await eventFactory.getAllDeployedEvents();
+
+      const eventsData = await Promise.all(
+        eventAddresses.map(async (eventAddress) => {
+          try {
+            const eventContract = new Contract(eventAddress, EVENT_TICKET_ABI, provider);
+            const [venue, description, startTime, endTime, baseMintPrice, maxSupply] = await Promise.all([
+              eventContract.venue(),
+              eventContract.eventDescription(),
+              eventContract.eventStartTime(),
+              eventContract.eventEndTime(),
+              eventContract.baseMintPrice(),
+              eventContract.maxSupply(),
+            ]);
+            return {
+              address: eventAddress,
+              venue,
+              description,
+              startTime: new Date(Number(startTime) * 1000),
+              endTime: new Date(Number(endTime) * 1000),
+              price: formatEther(baseMintPrice),
+              totalSeats: Number(maxSupply),
+            };
+          } catch (err) {
+            console.error('Error fetching event data:', err);
+            return null;
+          }
+        })
+      );
+
+      setEvents(eventsData.filter(Boolean));
+    } catch (error) {
+      console.error('Error fetching events:', error);
+    }
+    setLoading(false);
   };
 
   return (
-    <div className="home-container">
-      {/* Hero Section */}
-      <div className="hero-section">
-        <div className="hero-content">
-          <div className="hero-text">
-            <div className="hero-badge">
-              <span className="badge-icon">⚡</span>
-              The ultimate NFT marketplace
-            </div>
-            
-            <h1 className="hero-title">
-              Discover, collect, and sell
-              <span className="gradient-text"> extraordinary</span> event NFTs
-            </h1>
-            
-            <p className="hero-description">
-              Join the largest marketplace for event-based NFTs. Get exclusive access to concerts, 
-              conferences, sports events, and more with verifiable digital ownership.
-            </p>
-
-            <div className="hero-stats">
-              <div className="hero-stat">
-                <div className="stat-number">240k+</div>
-                <div className="stat-label">NFTs</div>
-              </div>
-              <div className="hero-stat">
-                <div className="stat-number">100k+</div>
-                <div className="stat-label">Artists</div>
-              </div>
-              <div className="hero-stat">
-                <div className="stat-number">24k+</div>
-                <div className="stat-label">Collections</div>
-              </div>
-            </div>
-
-            <div className="hero-actions">
-              <button className="btn-hero primary" onClick={handleExplore}>
-                Explore
-              </button>
-              <button className="btn-hero secondary" onClick={() => navigate("/create-event")}>
-                Create
-              </button>
-            </div>
+    <div className="app-container">
+      <div className="main-content">
+        {/* Header */}
+        <header className="header">
+          <div className="search-container">
+            <span className="search-icon">🔍</span>
+            <input type="text" className="search-input" placeholder="Search TicketVerse" />
           </div>
+          <div className="header-actions">
+            {!isConnected && (
+              <button className="connect-wallet-btn">Connect Wallet</button>
+            )}
+          </div>
+        </header>
 
-          <div className="hero-nft">
-            <div className="featured-nft-container">
-              {FEATURED_NFTS.map((nft, index) => (
-                <div 
-                  key={nft.id}
-                  className={`featured-nft ${index === currentFeatured ? 'active' : ''}`}
-                  onClick={() => handleViewCollection("e1")}
-                >
-                  <div className="nft-image">
-                    <img src={nft.image} alt={nft.name} />
-                    {nft.verified && <div className="verified-badge">✓</div>}
-                  </div>
-                  <div className="nft-details">
-                    <div className="nft-collection">{nft.collection}</div>
-                    <div className="nft-name">{nft.name}</div>
-                    <div className="nft-price">{nft.price} SOL</div>
+        <div className="content-layout">
+          <div className="main-panel">
+            {/* Hero Section */}
+            <div className="hero-collection">
+              <div className="hero-content">
+                <div className="collection-header">
+                  <div className="collection-avatar" style={{background: 'linear-gradient(135deg, #667eea, #764ba2)'}}></div>
+                  <div className="collection-info">
+                    <h1>
+                      TicketVerse
+                      <span className="verified-badge">✓</span>
+                    </h1>
+                    <p className="collection-by">Decentralized Event Ticketing & NFT Marketplace</p>
                   </div>
                 </div>
-              ))}
-              
-              <div className="carousel-dots">
-                {FEATURED_NFTS.map((_, index) => (
-                  <button
-                    key={index}
-                    className={`carousel-dot ${index === currentFeatured ? 'active' : ''}`}
-                    onClick={() => setCurrentFeatured(index)}
-                  />
-                ))}
+
+                {!isConnected ? (
+                  <div style={{textAlign: 'center', marginTop: '40px'}}>
+                    <h3 style={{marginBottom: '16px'}}>Connect your wallet to explore</h3>
+                    <button className="connect-wallet-btn">Connect Wallet</button>
+                  </div>
+                ) : (
+                  <div className="collection-stats">
+                    <div className="stat-item">
+                      <div className="stat-label">Total Events</div>
+                      <div className="stat-value">{events.length}</div>
+                    </div>
+                    <div className="stat-item">
+                      <div className="stat-label">Active</div>
+                      <div className="stat-value">{events.filter(e => new Date() < e.startTime).length}</div>
+                    </div>
+                    <div className="stat-item">
+                      <div className="stat-label">Live Now</div>
+                      <div className="stat-value">{events.filter(e => new Date() >= e.startTime && new Date() <= e.endTime).length}</div>
+                    </div>
+                    <div className="stat-item">
+                      <div className="stat-label">Platform</div>
+                      <div className="stat-value eth">Avalanche</div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
-            <div className="floating-elements">
-              <div className="float-card music">🎵</div>
-              <div className="float-card art">🎨</div>
-              <div className="float-card tech">💻</div>
-            </div>
+            {isConnected && (
+              <>
+                {/* Section Header */}
+                <section className="section-header">
+                  <div>
+                    <h2 className="section-title">Live Events</h2>
+                    <p className="section-subtitle">Discover and book tickets for amazing events</p>
+                  </div>
+                  <div className="section-filters">
+                    <Link to="/create-event" className="filter-btn active">Create Event</Link>
+                    <button className="filter-btn">All Events</button>
+                    <button className="filter-btn">This Week</button>
+                  </div>
+                </section>
+
+                {/* Events Grid */}
+                {loading ? (
+                  <div className="loading">
+                    <div className="spinner"></div>
+                  </div>
+                ) : events.length === 0 ? (
+                  <div className="hero-collection" style={{textAlign: 'center', padding: '60px 32px'}}>
+                    <div className="hero-content">
+                      <h3>No events found</h3>
+                      <p style={{marginBottom: '24px', color: '#8a8b8f'}}>Be the first to create an amazing event!</p>
+                      <Link to="/create-event" className="connect-wallet-btn">
+                        Create Event
+                      </Link>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="collections-grid">
+                      {events.map((event, idx) => {
+                        const showcase = sampleCollections[idx % sampleCollections.length];
+                        return (
+                          <div key={event.address} className="collection-card">
+                            <div className="collection-preview">
+                              <div className="collection-main-image" style={{ backgroundImage: `url(${showcase.tiles[0]})`, backgroundSize: 'cover' }}></div>
+                              <div className="collection-thumbnails">
+                                <div className="thumbnail" style={{ backgroundImage: `url(${showcase.tiles[1]})`, backgroundSize: 'cover' }}></div>
+                                <div className="thumbnail" style={{ backgroundImage: `url(${showcase.tiles[2]})`, backgroundSize: 'cover' }}></div>
+                                <div className="thumbnail"></div>
+                                <div className="thumbnail"></div>
+                              </div>
+                            </div>
+                            <div className="collection-card-info">
+                              <h3>
+                                {event.venue}
+                                <span className="verified-badge">✓</span>
+                              </h3>
+                              <p className="collection-card-subtitle">{event.description}</p>
+                              <div className="collection-card-stats">
+                                <div className="card-stat">
+                                  <div className="card-stat-label">Start Date</div>
+                                  <div className="card-stat-value">{event.startTime.toLocaleDateString()}</div>
+                                </div>
+                                <div className="card-stat">
+                                  <div className="card-stat-label">Price From</div>
+                                  <div className="card-stat-value">{Number(event.price).toFixed(3)} AVAX</div>
+                                </div>
+                                <div className="card-stat">
+                                  <div className="card-stat-label">Total Seats</div>
+                                  <div className="card-stat-value">{event.totalSeats}</div>
+                                </div>
+                              </div>
+                              <div style={{display: 'flex', gap: '8px', marginTop: '16px'}}>
+                                <Link to={`/event/${event.address}`} className="filter-btn" style={{flex: 1, textAlign: 'center'}}>
+                                  View Event
+                                </Link>
+                                <Link to={`/book-seat/${event.address}`} className="connect-wallet-btn" style={{flex: 1, textAlign: 'center', fontSize: '14px', padding: '8px 16px'}}>
+                                  Book Ticket
+                                </Link>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Magic Eden-inspired banner row (sample collections) */}
+                    <div className="hero-collection" style={{marginTop: 8}}>
+                      <div className="hero-content">
+                        <div className="collection-header">
+                          <div className="collection-avatar" style={{backgroundImage: `url(${sampleCollections[0].banner})`, backgroundSize: 'cover'}}></div>
+                          <div className="collection-info">
+                            <h1>Featured Collections <span className="verified-badge">★</span></h1>
+                            <p className="collection-by">Curated tickets & passes</p>
+                          </div>
+                        </div>
+                        <div className="collections-grid">
+                          {sampleCollections.map((c) => (
+                            <div key={c.id} className="collection-card">
+                              <div className="collection-preview">
+                                <div className="collection-main-image" style={{ backgroundImage:`url(${c.banner})`, backgroundSize:'cover' }}></div>
+                                <div className="collection-thumbnails">
+                                  {c.tiles.map((t, i) => (
+                                    <div key={i} className="thumbnail" style={{ backgroundImage:`url(${t})`, backgroundSize:'cover' }}></div>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="collection-card-info">
+                                <h3>{c.title} <span className="verified-badge">✓</span></h3>
+                                <p className="collection-card-subtitle">{c.subtitle}</p>
+                                <div className="collection-card-stats">
+                                  <div className="card-stat"><div className="card-stat-label">Floor</div><div className="card-stat-value">{c.stats.floor} AVAX</div></div>
+                                  <div className="card-stat"><div className="card-stat-label">Listed</div><div className="card-stat-value">{c.stats.listed}</div></div>
+                                  <div className="card-stat"><div className="card-stat-label">Volume</div><div className="card-stat-value">{c.stats.volume} AVAX</div></div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
           </div>
-        </div>
-      </div>
 
-      {/* Trending Collections */}
-      <div className="section trending-collections">
-        <div className="section-header">
-          <h2>🔥 Trending Collections</h2>
-          <p>Top event collections by volume</p>
-        </div>
+          {/* Right Panel - Quick Links */}
+          {isConnected && (
+            <div className="right-panel">
+              <div className="trending-panel">
+                <div className="panel-header">
+                  <h3 className="panel-title">Quick Links</h3>
+                </div>
+                <div className="trending-list">
+                  <Link to="/dashboard" className="trending-item" style={{textDecoration: 'none', color: 'inherit'}}>
+                    <div className="trending-rank">📊</div>
+                    <div className="trending-info">
+                      <div className="trending-name">Dashboard</div>
+                      <div className="trending-floor">
+                        <span style={{fontSize: '12px', color: '#8a8b8f'}}>View your stats</span>
+                      </div>
+                    </div>
+                  </Link>
+                  
+                  <Link to="/marketplace" className="trending-item" style={{textDecoration: 'none', color: 'inherit'}}>
+                    <div className="trending-rank">🛍️</div>
+                    <div className="trending-info">
+                      <div className="trending-name">Marketplace</div>
+                      <div className="trending-floor">
+                        <span style={{fontSize: '12px', color: '#8a8b8f'}}>Buy & sell tickets</span>
+                      </div>
+                    </div>
+                  </Link>
 
-        <div className="collections-grid">
-          {TRENDING.map(collection => (
-            <div 
-              key={collection.id} 
-              className="collection-card"
-              onClick={() => handleViewCollection(collection.id)}
-            >
-              <div className="collection-image">
-                <img src={collection.image} alt={collection.name} />
-                {collection.verified && <div className="verified-badge">✓</div>}
-              </div>
-              
-              <div className="collection-info">
-                <h3 className="collection-name">{collection.name}</h3>
-                
-                <div className="collection-stats">
-                  <div className="stat">
-                    <span className="stat-label">Floor</span>
-                    <span className="stat-value">{collection.floor} SOL</span>
-                  </div>
-                  <div className="stat">
-                    <span className="stat-label">Volume</span>
-                    <span className="stat-value">{collection.volume}K</span>
-                  </div>
-                  <div className="stat">
-                    <span className="stat-label">Items</span>
-                    <span className="stat-value">{collection.items}</span>
-                  </div>
+                  <Link to="/auction-chamber" className="trending-item" style={{textDecoration: 'none', color: 'inherit'}}>
+                    <div className="trending-rank">⚡</div>
+                    <div className="trending-info">
+                      <div className="trending-name">Auction Chamber</div>
+                      <div className="trending-floor">
+                        <span style={{fontSize: '12px', color: '#8a8b8f'}}>Bid on exclusive tickets</span>
+                      </div>
+                    </div>
+                  </Link>
+
+                  <Link to="/profile" className="trending-item" style={{textDecoration: 'none', color: 'inherit'}}>
+                    <div className="trending-rank">👤</div>
+                    <div className="trending-info">
+                      <div className="trending-name">Profile</div>
+                      <div className="trending-floor">
+                        <span style={{fontSize: '12px', color: '#8a8b8f'}}>Manage account</span>
+                      </div>
+                    </div>
+                  </Link>
                 </div>
               </div>
             </div>
-          ))}
-        </div>
-      </div>
-
-      {/* New & Notable */}
-      <div className="section new-notable">
-        <div className="section-header">
-          <h2>✨ New & Notable</h2>
-          <p>Fresh drops and upcoming events</p>
-        </div>
-
-        <div className="notable-grid">
-          {FRESH.map(item => (
-            <div 
-              key={item.id} 
-              className="notable-card"
-              onClick={() => handleViewCollection(item.id)}
-            >
-              <div className="notable-image">
-                <img src={item.image} alt={item.name} />
-                {item.verified && <div className="verified-badge">✓</div>}
-                <div className={`status-badge ${item.status}`}>
-                  {item.status === 'upcoming' ? 'Coming Soon' : 'Minting Now'}
-                </div>
-              </div>
-              
-              <div className="notable-info">
-                <h3 className="notable-name">{item.name}</h3>
-                <div className="notable-date">
-                  {new Date(item.date).toLocaleDateString('en-US', { 
-                    month: 'short', 
-                    day: 'numeric',
-                    year: 'numeric'
-                  })}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Categories */}
-      <div className="section categories">
-        <div className="section-header">
-          <h2>Browse by Category</h2>
-          <p>Find events that match your interests</p>
-        </div>
-
-        <div className="categories-grid">
-          {[
-            { name: "Music", icon: "🎵", count: "12.4K" },
-            { name: "Art", icon: "🎨", count: "8.2K" },
-            { name: "Sports", icon: "⚽", count: "6.8K" },
-            { name: "Technology", icon: "💻", count: "5.1K" },
-            { name: "Gaming", icon: "🎮", count: "4.3K" },
-            { name: "Conference", icon: "🎤", count: "3.9K" }
-          ].map(category => (
-            <div key={category.name} className="category-card">
-              <div className="category-icon">{category.icon}</div>
-              <div className="category-info">
-                <h3 className="category-name">{category.name}</h3>
-                <div className="category-count">{category.count} items</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Newsletter */}
-      <div className="section newsletter">
-        <div className="newsletter-content">
-          <div className="newsletter-text">
-            <h2>Never miss a drop</h2>
-            <p>Subscribe to our newsletter and be the first to know about new collections, events, and exclusive drops.</p>
-          </div>
-          
-          <div className="newsletter-form">
-            <input 
-              type="email" 
-              placeholder="Enter your email"
-              className="newsletter-input"
-            />
-            <button className="newsletter-btn">Subscribe</button>
-          </div>
+          )}
         </div>
       </div>
     </div>

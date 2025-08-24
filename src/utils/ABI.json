@@ -1,21 +1,44 @@
-[
-  {
-    "inputs": [
-      { "internalType": "string", "name": "eventName", "type": "string" }
-    ],
-    "name": "createEvent",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      { "internalType": "uint256", "name": "eventId", "type": "uint256" },
-      { "internalType": "string", "name": "seatId", "type": "string" }
-    ],
-    "name": "bookSeat",
-    "outputs": [],
-    "stateMutability": "payable",
-    "type": "function"
-  }
+{
+  "eventTicketABI": [
+    "function mintTicket(string memory eventName, uint256 seatNumber) external payable",
+    "function getSeatPrice(uint256 seatNumber, bool isVIP) external view returns (uint256)",
+    "function useTicket(uint256 tokenId) external",
+    "function refundTicket(uint256 tokenId) external",
+    "function ownerOf(uint256 tokenId) external view returns (address)",
+    "function balanceOf(address owner) external view returns (uint256)",
+    "function tokenOfOwnerByIndex(address owner, uint256 index) external view returns (uint256)",
+    "function getTicketInfo(uint256 tokenId) external view returns (tuple(string eventName, uint256 seatNumber, bool isVIP, uint256 mintedAt, uint256 pricePaid, bool isUsed, bool isTransferable, string venue))",
+    "function venue() external view returns (string)",
+    "function eventDescription() external view returns (string)",
+    "function maxSupply() external view returns (uint256)",
+    "function nextTicketId() external view returns (uint256)",
+    "function eventStartTime() external view returns (uint256)",
+    "function eventEndTime() external view returns (uint256)",
+    "function eventOrganizer() external view returns (address)",
+    "function baseMintPrice() external view returns (uint256)",
+    "function vipMintPrice() external view returns (uint256)",
+    "function vipConfig() external view returns (tuple(uint256 totalVIPSeats, uint256 vipSeatStart, uint256 vipSeatEnd, uint256 vipHoldingPeriod, bool vipEnabled))",
+    "function seatMinted(uint256) external view returns (bool)",
+    "function eventCancelled() external view returns (bool)",
+    "function eventCompleted() external view returns (bool)"
+  ],
+  "marketplaceABI": [
+    "function listItemFixedPrice(address tokenContract, uint256 tokenId, uint256 price) external",
+    "function buyItemWithDeposits(address tokenContract, uint256 tokenId) external",
+    "function createAuction(address tokenContract, uint256 tokenId, uint256 startingPrice, uint256 reservePrice, uint256 duration, uint256 minBidIncrement) external",
+    "function placeBidWithDeposits(address tokenContract, uint256 tokenId, uint256 bidAmount) external",
+    "function settleAuction(address tokenContract, uint256 tokenId) external",
+    "function getUserBalance(address user, address eventContract) external view returns (tuple(uint256 totalDeposited, uint256 availableBalance, uint256 lockedBalance, uint256 totalWithdrawn, uint256 totalProfits, uint256 maxWithdrawable))",
+    "function listings(bytes32) external view returns (tuple(address seller, address tokenContract, uint256 tokenId, uint256 price, uint8 saleType, bool active, uint256 listedAt))",
+    "function auctions(bytes32) external view returns (tuple(uint256 startTime, uint256 endTime, uint256 reservePrice, uint256 minBidIncrement, address highestBidder, uint256 highestBid, uint8 status, uint256 extensionCount))",
+    "function getListingId(address tokenContract, uint256 tokenId) external pure returns (bytes32)"
+  ],
+ "eventFactoryABI" : [
+  "function createEvent((string name, string symbol, uint256 maxSupply, uint256 baseMintPrice, uint256 organizerPercentage, uint256 royaltyFeePercentage, uint256 eventStartTime, uint256 eventEndTime, uint256 maxMintsPerUser, (uint256 totalVIPSeats, uint256 vipSeatStart, uint256 vipSeatEnd, uint256 vipHoldingPeriod, bool vipEnabled) vipConfig, uint256 vipMintPrice, bool waitlistEnabled, uint256 whitelistSaleDuration, address[] initialWhitelist, string venue, string eventDescription, uint256 seatCount, string vipTokenURIBase, string nonVipTokenURIBase)) external payable returns (address)",
+  "function getAllDeployedEvents() external view returns (address[])",
+  "function getAllOrganizerEvents(address organizer) external view returns (address[])",
+  "function authorizedOrganizers(address) external view returns (bool)",
+  "function eventCreationFee() external view returns (uint256)",
+  "event EventCreated(address indexed organizer, address indexed eventContract)"
 ]
+}

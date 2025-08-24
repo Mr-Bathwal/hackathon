@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ethers } from "ethers";
-import eventFactoryAbi from '../abifiles/EventFactory.json';
-import erc721Abi from '../abifiles/ERC721.json';
+import { BrowserProvider, Contract, formatEther } from "ethers";
+import eventFactoryAbi from "../abifiles/EventFactory.json";
+import erc721Abi from "../abifiles/ERC721.json";
 
 const EVENT_FACTORY_ADDRESS = import.meta.env.VITE_EVENT_FACTORY_ADDRESS;
 
@@ -25,10 +25,11 @@ const CreatedEvents = () => {
         alert("Please install MetaMask");
         return;
       }
-      const prov = new ethers.providers.Web3Provider(window.ethereum);
-      const signer = prov.getSigner();
+      // ethers v6 provider/signer
+      const prov = new BrowserProvider(window.ethereum);
+      const signer = await prov.getSigner();
       const acct = await signer.getAddress();
-      const factory = new ethers.Contract(EVENT_FACTORY_ADDRESS, eventFactoryAbi, signer);
+      const factory = new Contract(EVENT_FACTORY_ADDRESS, eventFactoryAbi, signer);
 
       setAccount(acct);
       setProvider(prov);
@@ -41,62 +42,69 @@ const CreatedEvents = () => {
     if (account && eventFactory && provider) {
       loadEvents();
     }
+    // eslint-disable-next-line
   }, [account, eventFactory, provider]);
 
   async function loadEvents() {
     setLoading(true);
     try {
-      // Fetch event addresses created by the user
-      const eventAddresses = await eventFactory.getOrganizerEvents(account, 0, 50);
+      // Contract call arguments may differ
+      // Prefer getAllOrganizerEvents (ABI must be correct)
+      let eventAddresses = [];
+      try {
+        eventAddresses = await eventFactory.getAllOrganizerEvents(account);
+      } catch {
+        // fallback or error
+        eventAddresses = [];
+      }
 
       const loadedEvents = [];
-
       for (const eventAddr of eventAddresses) {
-        const eventContract = new ethers.Contract(eventAddr, erc721Abi, provider);
+        const eventContract = new Contract(eventAddr, erc721Abi, provider);
 
-        // Fetch max supply and total supply safely
-        let maxSupply = 0;
+        // maxSupply/totalSupply
+        let maxSupply = 0n;
         try {
           maxSupply = await eventContract.totalSupply();
         } catch { /* ignore */ }
 
-        // Get event metrics
+        // event metrics
         let metrics = {};
         try {
-          metrics = await eventFactory.eventMetrics(eventAddr);
+          metrics = await eventFactory.eventMetrics?.(eventAddr) || {};
         } catch { /* ignore */ }
 
-        // Try fetching metadata from tokenURI of first minted token
+        // fetch IPFS/URL metadata from first token
         let metadata = null;
         try {
-          if (maxSupply.gt && maxSupply.gt(0)) {
+          if (Number(maxSupply) > 0 && eventContract.tokenByIndex && eventContract.tokenURI) {
             const tokenId = await eventContract.tokenByIndex(0);
             const tokenURI = await eventContract.tokenURI(tokenId);
-            // Fetch metadata JSON from tokenURI (could be IPFS or HTTPS)
-            const response = await fetch(tokenURI);
-            if (response.ok) {
-              metadata = await response.json();
+            if (tokenURI) {
+              const response = await fetch(tokenURI);
+              if (response.ok) {
+                metadata = await response.json();
+              }
             }
           }
         } catch {
           metadata = null;
         }
 
-        // Compose seat data summary from metadata or fallback
+        // Compose seat summary
         let seatData = {};
         if (metadata?.seats && Array.isArray(metadata.seats)) {
-          // Let's count seats per category
           seatData = metadata.seats.reduce((acc, seat) => {
             acc[seat.category] = (acc[seat.category] || 0) + 1;
             return acc;
           }, {});
         }
 
-        // Derive event start and end time from metadata or default to null
-        const eventStartTime = metadata?.eventStartTime ? new Date(metadata.eventStartTime * 1000) : null;
-        const eventEndTime = metadata?.eventEndTime ? new Date(metadata.eventEndTime * 1000) : null;
+        // Dates
+        const eventStartTime = metadata?.eventStartTime ? new Date(Number(metadata.eventStartTime) * 1000) : null;
+        const eventEndTime = metadata?.eventEndTime ? new Date(Number(metadata.eventEndTime) * 1000) : null;
 
-        // Determine status dynamically
+        // Status
         const now = new Date();
         let status = "draft";
         if (eventStartTime && eventEndTime) {
@@ -113,14 +121,15 @@ const CreatedEvents = () => {
           venue: metadata?.venue || "Unknown Venue",
           category: metadata?.category || "General",
           symbol: metadata?.symbol || "SYM",
-          mintPrice: metadata?.mintPrice ? ethers.utils.formatEther(metadata.mintPrice) : "0.1",
-          maxSupply: maxSupply.toNumber ? maxSupply.toNumber() : 0,
+          image: metadata?.image,
+          mintPrice: metadata?.mintPrice ? formatEther(BigInt(metadata.mintPrice)) : "0.1",
+          maxSupply: Number(maxSupply),
           orgPercent: metadata?.organizerPercentage || 0,
           royaltyFee: metadata?.royaltyFeePercentage || 0,
           seatData,
-          ticketsSold: metrics.totalTicketsSold ? metrics.totalTicketsSold.toNumber() : 0,
-          revenue: metrics.totalRevenue ? parseFloat(ethers.utils.formatEther(metrics.totalRevenue)) : 0,
-          attendees: 0, // If available add
+          ticketsSold: metrics?.totalTicketsSold ? Number(metrics.totalTicketsSold) : 0,
+          revenue: metrics?.totalRevenue ? parseFloat(formatEther(BigInt(metrics.totalRevenue))) : 0,
+          attendees: 0,
           earlyBird: metadata?.earlyBird || { active: false, discount: 0 },
         });
       }
@@ -301,7 +310,7 @@ const CreatedEvents = () => {
                         className="btn btn-secondary"
                         onClick={() => {
                           if (window.confirm("Are you sure you want to delete this draft?")) {
-                            // Implement deletion logic here if applicable
+                            // Optional: Add deletion logic here
                           }
                         }}
                         type="button"

@@ -1,0 +1,8 @@
+[
+  { "type": "function", "name": "getEventInfo", "inputs": [], "outputs": [ { "name": "startTime", "type": "uint256" }, { "name": "endTime", "type": "uint256" }, { "name": "venueInfo", "type": "string" }, { "name": "description", "type": "string" }, { "name": "cancelled", "type": "bool" }, { "name": "completed", "type": "bool" } ], "stateMutability": "view" },
+  { "type": "function", "name": "isSeatAvailable", "inputs": [ { "name": "seatNumber", "type": "uint256" } ], "outputs": [ { "name": "", "type": "bool" } ], "stateMutability": "view" },
+  { "type": "function", "name": "getSeatPrice", "inputs": [ { "name": "seatNumber", "type": "uint256" }, { "name": "isVIP", "type": "bool" } ], "outputs": [ { "name": "", "type": "uint256" } ], "stateMutability": "view" },
+  { "type": "function", "name": "mintTicket", "inputs": [ { "name": "_eventName", "type": "string" }, { "name": "_seatNumber", "type": "uint256" } ], "outputs": [], "stateMutability": "payable" },
+  { "type": "function", "name": "getTicketInfo", "inputs": [ { "name": "tokenId", "type": "uint256" } ], "outputs": [ { "name": "", "type": "tuple", "components": [ { "name": "eventName", "type": "string" }, { "name": "seatNumber", "type": "uint256" }, { "name": "isVIP", "type": "bool" }, { "name": "mintedAt", "type": "uint256" }, { "name": "pricePaid", "type": "uint256" }, { "name": "isUsed", "type": "bool" }, { "name": "isTransferable", "type": "bool" }, { "name": "venue", "type": "string" } ] } ], "stateMutability": "view" }
+ 
+]

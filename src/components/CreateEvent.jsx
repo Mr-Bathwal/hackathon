@@ -1,280 +1,314 @@
-import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { ethers } from "ethers";
-import HumanVerification from "./HumanVerification";
-import eventFactoryAbi from '../abifiles/EventFactory.json';
+import React, { useState } from "react";
+import { useAccount } from "wagmi";
+import { BrowserProvider, Contract, parseEther } from "ethers";
+import { toast } from "sonner";
+import { CONTRACT_ADDRESSES, EVENT_FACTORY_ABI } from "../lib/contracts";
+import { uploadMetadataToPinata } from "../utils/pinata";
 
-const categories = [
-  "Music", "Art", "Sports", "Gaming", "Conference", "Festival", "Technology", "Finance"
-];
-
-const getFactoryContract = (signer) => {
-  const factoryAddress = process.env.REACT_APP_EVENT_FACTORY_ADDRESS || '0xYourFactoryAddress';
-  return new ethers.Contract(factoryAddress, eventFactoryAbi, signer);
+const INITIAL_STATE = {
+  name: "",
+  symbol: "",
+  venue: "",
+  description: "",
+  maxSupply: "",
+  baseMintPrice: "",
+  vipMintPrice: "",
+  organizerPercentage: "7000",
+  royaltyFeePercentage: "500",
+  eventStartTime: "",
+  eventEndTime: "",
+  maxMintsPerUser: "5",
+  waitlistEnabled: false,
+  whitelistSaleDuration: "86400",
+  vipEnabled: false,
+  totalVIPSeats: "",
+  vipSeatStart: "",
+  vipSeatEnd: "",
+  vipHoldingPeriod: "7200"
 };
 
 export default function CreateEvent() {
-  const navigate = useNavigate();
-  const [form, setForm] = useState({
-    name: "",
-    symbol: "",
-    date: "",
-    eventDurationDays: 3,
-    category: "Music",
-    venue: "",
-    maxSupply: 1000,
-    vipFrom: 1,
-    vipTo: 400,
-    baseMintPrice: 0.1,
-    vipMintPrice: 0.2,
-    organizerPercentage: 10,
-    royaltyFeePercentage: 5,
-    maxMintsPerUser: 5,
-    waitlistEnabled: true,
-    eventDescription: ""
-  });
-  const [provider, setProvider] = useState(null);
-  const [signer, setSigner] = useState(null);
-  const [loadingTx, setLoadingTx] = useState(false);
-  const [verificationOpen, setVerificationOpen] = useState(false);
-  const [isVerified, setIsVerified] = useState(false);
+  const { isConnected } = useAccount();
+  const [formData, setFormData] = useState(INITIAL_STATE);
+  const [loading, setLoading] = useState(false);
+  const [depositAmount, setDepositAmount] = useState("");
 
-  useEffect(() => {
-    async function setupWallet() {
-      if (!window.ethereum) {
-        alert("Please install MetaMask");
+  function handleInputChange(e) {
+    const { name, value, type, checked } = e.target;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: type === "checkbox" ? checked : value
+    }));
+  }
+
+  async function addFundsPreview() {
+    try {
+      const provider = new BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const marketplace = new Contract(
+        CONTRACT_ADDRESSES.TICKET_MARKETPLACE,
+        (await import('../lib/contracts')).TICKET_MARKETPLACE_ABI,
+        signer
+      );
+      const valueWei = parseEther(String(depositAmount || '0'));
+      await marketplace.depositForEvent('0x0000000000000000000000000000000000000000', { value: valueWei });
+    } catch (e) {
+      // This is a placeholder helper. On real deposit user should do it from Event Details page after creation
+    }
+  }
+
+  async function handleCreateEvent(e) {
+    e.preventDefault();
+    if (!isConnected) {
+      toast.error("Please connect your wallet");
+      return;
+    }
+    if (!formData.name || !formData.symbol || !formData.venue) {
+      toast.error("Please fill the required fields");
+      return;
+    }
+    if (formData.vipEnabled) {
+      const start = parseInt(formData.vipSeatStart || '0');
+      const end = parseInt(formData.vipSeatEnd || '0');
+      if (start <= 0 || end <= 0 || end < start) {
+        toast.error("VIP seat range is invalid");
         return;
       }
-      const prov = new ethers.providers.Web3Provider(window.ethereum);
-      const signerInst = prov.getSigner();
-      setProvider(prov);
-      setSigner(signerInst);
-    }
-    setupWallet();
-  }, []);
-  useEffect(() => {
-    // Reset VIP from/to when maxSupply changes
-    const total = parseInt(form.maxSupply, 10) || 1000;
-    const vipDefault = Math.floor(total * 0.4);
-    setForm(f => ({
-      ...f,
-      vipFrom: 1,
-      vipTo: vipDefault > 0 ? vipDefault : 1
-    }));
-  }, [form.maxSupply]);
-
-  const handleInputChange = e => {
-    const { name, value, type, checked } = e.target;
-    setForm(f => ({ ...f, [name]: type === "checkbox" ? checked : value }));
-  };
-  const onVerifySuccess = () => {
-    setIsVerified(true);
-    setVerificationOpen(false);
-  };
-  const handleSubmit = async e => {
-    e.preventDefault();
-
-    if (!signer) {
-      alert("Please connect your wallet");
-      return;
-    }
-    if (!isVerified) {
-      alert("Please complete human verification before creation");
-      setVerificationOpen(true);
-      return;
-    }
-    if (!form.name.trim() || !form.venue.trim() || !form.date) {
-      alert("Name, Venue, and Date required");
-      return;
-    }
-    const totalSeats = parseInt(form.maxSupply, 10);
-    const vipFrom = parseInt(form.vipFrom, 10);
-    const vipTo = parseInt(form.vipTo, 10);
-    if (vipFrom < 1 || vipTo < vipFrom || vipTo > totalSeats) {
-      alert("VIP seat numbers must be within valid range.");
-      return;
     }
 
-    const eventStart = Math.floor(new Date(form.date).getTime() / 1000);
-    const eventEnd = eventStart + (parseInt(form.eventDurationDays, 10) * 24 * 3600);
-    const vipCount = vipTo - vipFrom + 1;
-
-    const createParams = {
-      name: form.name,
-      symbol: form.symbol ? form.symbol : form.name.substring(0,4).toUpperCase(),
-      maxSupply: totalSeats,
-      baseMintPrice: ethers.utils.parseEther(form.baseMintPrice.toString()),
-      organizerPercentage: parseInt(form.organizerPercentage),
-      royaltyFeePercentage: parseInt(form.royaltyFeePercentage),
-      eventStartTime: eventStart,
-      eventEndTime: eventEnd,
-      maxMintsPerUser: parseInt(form.maxMintsPerUser),
-      vipConfig: {
-        totalVIPSeats: vipCount,
-        vipSeatStart: vipFrom,
-        vipSeatEnd: vipTo,
-        vipHoldingPeriod: 30 * 24 * 3600,
-        vipPriceMultiplier: parseFloat(form.vipMintPrice/form.baseMintPrice),
-        vipEnabled: vipCount > 0
-      },
-      waitlistEnabled: form.waitlistEnabled,
-      whitelistSaleDuration: 0, // Whitelist Disabled
-      initialWhitelist: [],
-      venue: form.venue,
-      eventDescription: form.eventDescription
-    };
-
+    setLoading(true);
     try {
-      setLoadingTx(true);
-      const factory = getFactoryContract(signer);
-      const fee = await factory.eventCreationFee();
-      const tx = await factory.createEvent(createParams, { value: fee });
+      // 1. Setup blockchain provider/contract
+      const provider = new BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const eventFactory = new Contract(
+        CONTRACT_ADDRESSES.EVENT_FACTORY,
+        EVENT_FACTORY_ABI,
+        signer
+      );
+      const creationFee = await eventFactory.eventCreationFee();
+
+      // 1.5. Request faucet 0.01 AVAX (if supported by contract)
+      try {
+        if (typeof eventFactory.requestFaucet === 'function') {
+          await (await eventFactory.requestFaucet()).wait();
+          toast.success('Faucet requested: 0.01 AVAX');
+        }
+      } catch (e) {
+        console.warn('Faucet request skipped or failed', e?.message || e);
+      }
+
+      // 2. Pinata metadata upload for both ticket type URIs
+      const vipMeta = {
+        name: `${formData.name} VIP Ticket`,
+        description: `VIP access to ${formData.name} at ${formData.venue}`,
+        image: "https://images.unsplash.com/photo-1511379938547-c1f69419868d?w=600",
+        attributes: [
+          { trait_type: "Type", value: "VIP" },
+          { trait_type: "Event", value: formData.name },
+          { trait_type: "Venue", value: formData.venue },
+          { trait_type: "Perks", value: "Priority entry, lounge access, merch" }
+        ]
+      };
+      const regularMeta = {
+        name: `${formData.name} Regular Ticket`,
+        description: `Regular access to ${formData.name} at ${formData.venue}`,
+        image: "https://images.unsplash.com/photo-1515165562835-c3b8c8f0f2fd?w=600",
+        attributes: [
+          { trait_type: "Type", value: "Regular" },
+          { trait_type: "Event", value: formData.name },
+          { trait_type: "Venue", value: formData.venue },
+          { trait_type: "Perks", value: "Standard entry" }
+        ]
+      };
+      const vipUpload = await uploadMetadataToPinata(vipMeta);
+      const regularUpload = await uploadMetadataToPinata(regularMeta);
+
+      // 3. Nested VIPConfig as ordered array
+      const vipConfig = [
+        formData.vipEnabled ? parseInt(formData.totalVIPSeats) || 0 : 0,
+        formData.vipEnabled ? parseInt(formData.vipSeatStart) || 0 : 0,
+        formData.vipEnabled ? parseInt(formData.vipSeatEnd) || 0 : 0,
+        formData.vipEnabled ? parseInt(formData.vipHoldingPeriod) || 0 : 0,
+        formData.vipEnabled,
+      ];
+
+      // 4. Flat event params array (order matters, must match ABI tuples!)
+      const eventParams = [
+        formData.name,                          // string name
+        formData.symbol,                        // string symbol
+        parseInt(formData.maxSupply),           // uint256 maxSupply
+        parseEther(formData.baseMintPrice),     // uint256 baseMintPrice
+        parseInt(formData.organizerPercentage), // uint256 organizerPercentage (BPS)
+        parseInt(formData.royaltyFeePercentage),// uint256 royaltyFeePercentage (BPS)
+        Math.floor(new Date(formData.eventStartTime).getTime() / 1000),  // uint256 eventStartTime (unix)
+        Math.floor(new Date(formData.eventEndTime).getTime() / 1000),    // uint256 eventEndTime (unix)
+        parseInt(formData.maxMintsPerUser),     // uint256 maxMintsPerUser
+        vipConfig,                              // VIPConfig struct as array
+        parseEther(formData.vipMintPrice || "0"),// uint256 vipMintPrice
+        formData.waitlistEnabled,                // bool waitlistEnabled
+        parseInt(formData.whitelistSaleDuration),// uint256 whitelistSaleDuration (seconds)
+        [],                                      // address[] initialWhitelist (empty by default)
+        formData.venue,                          // string venue
+        formData.description,                    // string eventDescription
+        parseInt(formData.maxSupply),            // uint256 seatCount (matching maxSupply)
+        `https://gateway.pinata.cloud/ipfs/${vipUpload.IpfsHash}/`,       // string vipTokenURIBase
+        `https://gateway.pinata.cloud/ipfs/${regularUpload.IpfsHash}/`    // string nonVipTokenURIBase
+      ];
+
+      // 5. Call the contract method
+      const tx = await eventFactory.createEvent(eventParams, { value: creationFee });
       await tx.wait();
 
-      alert(`Event "${form.name}" created successfully.`);
-      navigate("/created-events", {
-        state: {
-          ...form,
-          vipSeats: vipCount,
-          vipFrom,
-          vipTo,
-          vipMintPrice: form.vipMintPrice
-        }
-      });
-    } catch (err) {
-      console.error(err);
-      alert("Creation failed. See console.");
-    } finally {
-      setLoadingTx(false);
+      toast.success("Event created successfully!");
+      setFormData(INITIAL_STATE);
+    } catch (error) {
+      console.error("Error creating event:", error);
+      toast.error(
+        "Failed to create event: " +
+        (error?.info?.error?.message || error?.reason || error?.message || "Unknown error")
+      );
     }
-  };
+    setLoading(false);
+  }
 
   return (
-    <div style={{
-      background: "#181818",
-      minHeight: "100vh",
-      padding: "2rem",
-      color: "#eee",
-      fontFamily: "Segoe UI, Arial, sans-serif"
-    }}>
-      <h1 style={{ color: "#fff", textAlign: "left", marginBottom: "2rem", fontWeight: "bold" }}>Create New Event</h1>
-      <form
-        onSubmit={handleSubmit}
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: "1.5rem",
-          maxWidth: "820px",
-          background: "#222",
-          borderRadius: "12px",
-          padding: "2rem",
-          margin: "auto"
-        }}
-      >
-        <div>
-          <label>Name*:<br />
-            <input type="text" name="name" value={form.name} onChange={handleInputChange} required />
-          </label>
+    <div className="form-page">
+      <div className="card">
+        <div className="form-header">
+          <h2>Create New Event</h2>
+          <p>Define your event, pricing, times and optional VIP seat range. Design stays on theme.</p>
         </div>
-        <div>
-          <label>Symbol:<br />
-            <input type="text" name="symbol" value={form.symbol} onChange={handleInputChange} maxLength={8}/>
-          </label>
-        </div>
-        <div>
-          <label>Date*:<br />
-            <input type="datetime-local" name="date" value={form.date} onChange={handleInputChange} required />
-          </label>
-        </div>
-        <div>
-          <label>Event Duration (days):<br />
-            <input type="number" name="eventDurationDays" value={form.eventDurationDays} min={1} max={30} onChange={handleInputChange} />
-          </label>
-        </div>
-        <div>
-          <label>Category:<br />
-            <select name="category" value={form.category} onChange={handleInputChange}
-              style={{ width: "100%", minHeight: "34px" }}>
-              {categories.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </label>
-        </div>
-        <div>
-          <label>Venue*:<br />
-            <input type="text" name="venue" value={form.venue} onChange={handleInputChange} required />
-          </label>
-        </div>
-        <div>
-          <label>Total Seats*:<br />
-            <input type="number" name="maxSupply" value={form.maxSupply} onChange={handleInputChange} min={1}/>
-          </label>
-        </div>
-        <div>
-          <label>VIP Seats: From #<br />
-            <input type="number" name="vipFrom" value={form.vipFrom} min={1} max={form.maxSupply} onChange={handleInputChange} style={{width: "80px", marginRight:"6px"}}/>
-            to #<input type="number" name="vipTo" value={form.vipTo} min={form.vipFrom} max={form.maxSupply} onChange={handleInputChange} style={{width: "80px"}}/>
-          </label>
-        </div>
-        <div>
-          <label>Base Mint Price (ETH):<br />
-            <input type="number" name="baseMintPrice" value={form.baseMintPrice} min={0.01} step={0.01} onChange={handleInputChange}/>
-          </label>
-        </div>
-        <div>
-          <label>VIP Mint Price (ETH):<br />
-            <input type="number" name="vipMintPrice" value={form.vipMintPrice} min={form.baseMintPrice} step={0.01} onChange={handleInputChange}/>
-          </label>
-        </div>
-        <div>
-          <label>Organizer Revenue %:<br />
-            <input type="number" name="organizerPercentage" value={form.organizerPercentage} min={0} max={100} onChange={handleInputChange}/>
-          </label>
-        </div>
-        <div>
-          <label>Royalty Fee %:<br />
-            <input type="number" name="royaltyFeePercentage" value={form.royaltyFeePercentage} min={0} max={100} onChange={handleInputChange}/>
-          </label>
-        </div>
-        <div>
-          <label>Max Mints Per User:<br />
-            <input type="number" name="maxMintsPerUser" value={form.maxMintsPerUser} min={1} max={100} onChange={handleInputChange}/>
-          </label>
-        </div>
-        <div style={{alignSelf:"center"}}>
-          <label>
-            <input type="checkbox" name="waitlistEnabled" checked={form.waitlistEnabled} onChange={handleInputChange} />
-            Enable Waitlist
-          </label>
-        </div>
-        <div style={{ gridColumn: "1 / 3" }}>
-          <label>Description:<br />
-            <textarea name="eventDescription" value={form.eventDescription} onChange={handleInputChange} rows={3} style={{width:"100%"}}/>
-          </label>
-        </div>
-        <div style={{ gridColumn: "1 / 3", textAlign: "center", paddingTop:"16px" }}>
-          <button type="submit" disabled={loadingTx}
-            style={{
-              background: "#6935d3",
-              color: "#fff",
-              fontWeight: "bold",
-              padding: "12px 28px",
-              border: "none",
-              borderRadius: "6px",
-              fontSize: "1.1rem",
-              cursor: "pointer"
-            }}
-          >
-            {loadingTx ? "Creating Event..." : "Create Event"}
-          </button>
-        </div>
-      </form>
 
-      {verificationOpen ? (
-        <HumanVerification
-          onSuccess={onVerifySuccess}
-          onCancel={() => setVerificationOpen(false)}
-        />
-      ) : null}
+        <form onSubmit={handleCreateEvent} className="form-grid">
+          <div className="form-group">
+            <label>Event Name</label>
+            <input className="input" name="name" required type="text" value={formData.name} onChange={handleInputChange} />
+          </div>
+          <div className="form-group">
+            <label>Symbol</label>
+            <input className="input" name="symbol" required type="text" value={formData.symbol} onChange={handleInputChange} />
+          </div>
+
+          <div className="form-group">
+            <label>Venue</label>
+            <input className="input" name="venue" required type="text" value={formData.venue} onChange={handleInputChange} />
+          </div>
+          <div className="form-group">
+            <label>Max Supply</label>
+            <input className="input" name="maxSupply" required type="number" min={1} value={formData.maxSupply} onChange={handleInputChange} />
+          </div>
+
+          <div className="form-group" style={{gridColumn: '1 / -1'}}>
+            <label>Description</label>
+            <textarea className="textarea" name="description" required value={formData.description} onChange={handleInputChange} />
+          </div>
+
+          <div className="form-group">
+            <label>Base Mint Price (AVAX)</label>
+            <input className="input" name="baseMintPrice" required type="number" step="0.0001" value={formData.baseMintPrice} onChange={handleInputChange} />
+          </div>
+          <div className="form-group">
+            <label>Organizer Percentage (BPS)</label>
+            <input className="input" name="organizerPercentage" type="number" min={1} max={9800} value={formData.organizerPercentage} onChange={handleInputChange} />
+            <span className="help-text">Example: 7000 = 70%</span>
+          </div>
+
+          <div className="form-group">
+            <label>Royalty Fee (BPS)</label>
+            <input className="input" name="royaltyFeePercentage" type="number" min={0} max={1000} value={formData.royaltyFeePercentage} onChange={handleInputChange} />
+          </div>
+          <div className="form-group">
+            <label>Max Mints Per User</label>
+            <input className="input" name="maxMintsPerUser" type="number" min={1} max={100} value={formData.maxMintsPerUser} onChange={handleInputChange} />
+          </div>
+
+          <div className="form-group">
+            <label>Start Time</label>
+            <input className="input" name="eventStartTime" type="datetime-local" required value={formData.eventStartTime} onChange={handleInputChange} />
+          </div>
+          <div className="form-group">
+            <label>End Time</label>
+            <input className="input" name="eventEndTime" type="datetime-local" required value={formData.eventEndTime} onChange={handleInputChange} />
+          </div>
+
+          <div className="form-group">
+            <label>Waitlist Enabled</label>
+            <label className="switch">
+              <input type="checkbox" name="waitlistEnabled" checked={formData.waitlistEnabled} onChange={handleInputChange} />
+              <span className="help-text">Enable allowlist phase</span>
+            </label>
+          </div>
+          <div className="form-group">
+            <label>Whitelist Sale Duration (sec)</label>
+            <input className="input" name="whitelistSaleDuration" type="number" min={0} value={formData.whitelistSaleDuration} onChange={handleInputChange} />
+          </div>
+
+          <div className="form-group" style={{gridColumn: '1 / -1'}}>
+            <label className="switch">
+              <input type="checkbox" name="vipEnabled" checked={formData.vipEnabled} onChange={handleInputChange} />
+              Enable VIP Seats
+            </label>
+          </div>
+
+          {formData.vipEnabled && (
+            <>
+              <div className="form-group">
+                <label>VIP Mint Price (AVAX)</label>
+                <input className="input" name="vipMintPrice" type="number" step="0.0001" required value={formData.vipMintPrice} onChange={handleInputChange} />
+              </div>
+              <div className="form-group">
+                <label>Total VIP Seats</label>
+                <input className="input" name="totalVIPSeats" type="number" min={1} value={formData.totalVIPSeats} onChange={handleInputChange} />
+              </div>
+              <div className="form-group">
+                <label>VIP Seat Start Index</label>
+                <input className="input" name="vipSeatStart" type="number" min={1} value={formData.vipSeatStart} onChange={handleInputChange} />
+              </div>
+              <div className="form-group">
+                <label>VIP Seat End Index</label>
+                <input className="input" name="vipSeatEnd" type="number" min={1} value={formData.vipSeatEnd} onChange={handleInputChange} />
+              </div>
+              <div className="form-group">
+                <label>VIP Holding Period (sec)</label>
+                <input className="input" name="vipHoldingPeriod" type="number" min={0} value={formData.vipHoldingPeriod} onChange={handleInputChange} />
+              </div>
+
+              <div className="form-group" style={{gridColumn:'1 / -1'}}>
+                <div className="preview-chips">
+                  <div className="preview-chip">VIP Range: {formData.vipSeatStart || '-'} - {formData.vipSeatEnd || '-'}</div>
+                  <div className="preview-chip">VIP Seats: {formData.totalVIPSeats || 0}</div>
+                  <div className="preview-chip">VIP Price: {formData.vipMintPrice || 0} AVAX</div>
+                </div>
+              </div>
+            </>
+          )}
+
+          <div className="form-group" style={{gridColumn:'1 / -1', marginTop: 8}}>
+            <button disabled={loading} type="submit" className="btn btn-primary">
+              {loading ? "Creating..." : "Create Event"}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="form-header">
+          <h2>Pre-flight</h2>
+          <p>Request faucet and simulate deposits before creating your event.</p>
+        </div>
+        <div className="form-row" style={{marginBottom:12}}>
+          <button className="btn" onClick={async()=>{
+            try{ const provider=new BrowserProvider(window.ethereum); const signer=await provider.getSigner(); const f=new Contract(CONTRACT_ADDRESSES.EVENT_FACTORY, EVENT_FACTORY_ABI, signer); const tx= await f.requestFaucet(); await tx.wait(); toast.success('Faucet requested: 0.01 AVAX'); }catch(e){ toast.error('Faucet failed or not available'); }
+          }}>Get Faucet 0.01 AVAX</button>
+          <span className="help-text">Required by your contract; then Create Event will work.</span>
+        </div>
+        <div className="deposit-card">
+          <input className="input" type="number" min={0} step={0.001} placeholder="Amount in AVAX" value={depositAmount} onChange={(e)=>setDepositAmount(e.target.value)} />
+          <button className="btn" onClick={addFundsPreview} disabled={!depositAmount}>Simulate Deposit</button>
+          <span className="help-text">Real deposits are per-event from Event Details page.</span>
+        </div>
+      </div>
     </div>
   );
 }

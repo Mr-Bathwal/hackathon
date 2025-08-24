@@ -1,26 +1,68 @@
 // src/utils/ethereum.js
-import { ethers } from 'ethers';
-import EventFactoryABI from '../abifiles/EventFactory.json';
-import TicketMarketplaceABI from '../abifiles/TicketMarketplace.json';
+import { BrowserProvider } from 'ethers';
+import { avalancheFuji } from 'wagmi/chains';
 
-// Contract addresses
-export const EVENT_FACTORY_ADDRESS = '0x93A8868Fe54DfF5c33F89c1434D83C58ee63f567';
-export const MARKETPLACE_ADDRESS    = '0xD15fB217FB2c9396CF3bb94DcB21E99eB340629F';
+export const NETWORK_CONFIG = {
+  chainId: avalancheFuji.id,
+  chainName: avalancheFuji.name,
+  nativeCurrency: avalancheFuji.nativeCurrency,
+  rpcUrls: [avalancheFuji.rpcUrls.default.http[0]],
+  blockExplorerUrls: [avalancheFuji.blockExplorers.default.url],
+};
 
-// Alchemy provider (Avalanche Fuji)
-export const provider = new ethers.providers.JsonRpcProvider(
-  'https://avax-fuji.g.alchemy.com/v2/F5gsff5z--PUD-jYszM8ErWKLSmCnmhh'
-);
+export const checkNetwork = async () => {
+  if (!window.ethereum) {
+    throw new Error('MetaMask not installed');
+  }
 
-// Contracts (read-only)
-export const eventFactory = new ethers.Contract(
-  EVENT_FACTORY_ADDRESS,
-  EventFactoryABI,
-  provider
-);
+  const provider = new BrowserProvider(window.ethereum);
+  const network = await provider.getNetwork();
 
-export const ticketMarketplace = new ethers.Contract(
-  MARKETPLACE_ADDRESS,
-  TicketMarketplaceABI,
-  provider
-);
+  if (network.chainId !== NETWORK_CONFIG.chainId) {
+    try {
+      await window.ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: `0x${NETWORK_CONFIG.chainId.toString(16)}` }],
+      });
+    } catch (switchError) {
+      // This error code indicates that the chain has not been added to MetaMask
+      if (switchError.code === 4902) {
+        try {
+          await window.ethereum.request({
+            method: 'wallet_addEthereumChain',
+            params: [
+              {
+                chainId: `0x${NETWORK_CONFIG.chainId.toString(16)}`,
+                chainName: NETWORK_CONFIG.chainName,
+                nativeCurrency: NETWORK_CONFIG.nativeCurrency,
+                rpcUrls: NETWORK_CONFIG.rpcUrls,
+                blockExplorerUrls: NETWORK_CONFIG.blockExplorerUrls,
+              },
+            ],
+          });
+        } catch (addError) {
+          throw new Error('Failed to add network to MetaMask');
+        }
+      } else {
+        throw new Error('Failed to switch network');
+      }
+    }
+  }
+};
+
+export const formatAddress = (address) => {
+  if (!address) return '';
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+};
+
+export const formatPrice = (price, decimals = 4) => {
+  return parseFloat(price).toFixed(decimals);
+};
+
+export const getExplorerUrl = (txHash) => {
+  return `${NETWORK_CONFIG.blockExplorerUrls[0]}/tx/${txHash}`;
+};
+
+export const getAddressUrl = (address) => {
+  return `${NETWORK_CONFIG.blockExplorerUrls}/address/${address}`;
+};

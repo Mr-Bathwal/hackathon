@@ -1,489 +1,401 @@
-import React, { useState, useEffect } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
-import SeatSelector from "../components/SeatSelector";
-import { useHumanVerification } from "../hooks/useHumanVerification";
-import HumanVerification from "../components/HumanVerification";
-
-// Mock event data with individual NFTs
-const EVENT_NFTS = {
-  "e1": {
-    name: "Crypto Music Fest 2025",
-    image: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=600&h=400&fit=crop",
-    description: "The biggest crypto music festival featuring top DJs and artists from around the world.",
-    venue: "Madison Square Garden",
-    date: "2025-12-15T19:00:00Z",
-    category: "Music",
-    floor: 0.8,
-    volume: 120.5,
-    nfts: [
-      {
-        id: "nft1",
-        name: "VIP Section A - Row 1",
-        image: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=400&h=400&fit=crop",
-        seat: "A1-5",
-        tier: "VIP",
-        price: 2.5,
-        perks: ["VIP Lounge", "Meet & Greet", "Signed Merch"],
-        available: true
-      },
-      {
-        id: "nft2", 
-        name: "VIP Section A - Row 2",
-        image: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=400&h=400&fit=crop&blend=6366f1&sat=-100&blend-mode=multiply",
-        seat: "A2-3",
-        tier: "VIP", 
-        price: 2.2,
-        perks: ["VIP Lounge", "Premium Bar"],
-        available: true
-      },
-      {
-        id: "nft3",
-        name: "General Section B - Row 5",
-        image: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=400&h=400&fit=crop&blend=10b981&sat=-100&blend-mode=multiply",
-        seat: "B5-10",
-        tier: "Normal",
-        price: 0.8,
-        perks: ["General Access"],
-        available: true
-      },
-      {
-        id: "nft4",
-        name: "General Section C - Row 8", 
-        image: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=400&h=400&fit=crop&blend=10b981&sat=-100&blend-mode=multiply",
-        seat: "C8-12",
-        tier: "Normal",
-        price: 0.6,
-        perks: ["General Access"],
-        available: false
-      }
-    ]
-  },
-  "e2": {
-    name: "Digital Art Expo",
-    image: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&h=400&fit=crop",
-    description: "Explore the intersection of technology and creativity at this groundbreaking digital art exhibition.",
-    venue: "Modern Art Museum",
-    date: "2025-11-20T14:00:00Z",
-    category: "Art",
-    floor: 0.3,
-    volume: 75.2,
-    nfts: [
-      {
-        id: "nft5",
-        name: "Premium Gallery Access",
-        image: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=400&fit=crop",
-        seat: "Gallery-VIP",
-        tier: "VIP",
-        price: 1.5,
-        perks: ["Curator Tour", "Artist Meet"],
-        available: true
-      },
-      {
-        id: "nft6",
-        name: "Standard Gallery Pass",
-        image: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=400&fit=crop&blend=10b981&sat=-100&blend-mode=multiply",
-        seat: "Gallery-General",
-        tier: "Normal",
-        price: 0.3,
-        perks: ["General Access"],
-        available: true
-      }
-    ]
-  },
-  "e3": {
-    name: "Web3 Conference",
-    image: "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=600&h=400&fit=crop",
-    description: "Join industry leaders discussing the future of blockchain, DeFi, and decentralized technologies.",
-    venue: "Convention Center",
-    date: "2025-10-10T09:00:00Z", 
-    category: "Technology",
-    floor: 1.2,
-    volume: 210.8,
-    nfts: [
-      {
-        id: "nft7",
-        name: "VIP Conference Pass",
-        image: "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=400&h=400&fit=crop",
-        seat: "VIP-Front",
-        tier: "VIP",
-        price: 3.0,
-        perks: ["Networking Dinner", "Speaker Access"],
-        available: true
-      },
-      {
-        id: "nft8",
-        name: "Standard Conference Pass",  
-        image: "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=400&h=400&fit=crop&blend=10b981&sat=-100&blend-mode=multiply",
-        seat: "General-Floor",
-        tier: "Normal",
-        price: 1.2,
-        perks: ["Conference Access"],
-        available: true
-      }
-    ]
-  }
-};
+import React, { useState, useEffect } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { useAccount } from 'wagmi';
+import { BrowserProvider, Contract, formatEther } from 'ethers';
+import { toast } from 'sonner';
+import { EVENT_TICKET_ABI, TICKET_MARKETPLACE_ABI, CONTRACT_ADDRESSES } from '../lib/contracts';
 
 export default function EventDetails() {
-  const { id } = useParams();
-  const navigate = useNavigate();
-  const [selectedNft, setSelectedNft] = useState(null);
-  const [showSeatModal, setShowSeatModal] = useState(false);
-  const [selectedSeats, setSelectedSeats] = useState([]);
-  const [purchaseStep, setPurchaseStep] = useState("select"); // select, seats, confirm
-  
-  const {
-    isVerificationOpen,
-    requestVerification,
-    handleVerified,
-    handleClose
-  } = useHumanVerification();
+  const { eventAddress } = useParams();
+  const { address, isConnected } = useAccount();
+  const [eventInfo, setEventInfo] = useState(null);
+  const [eventStats, setEventStats] = useState(null);
+  const [userTickets, setUserTickets] = useState([]);
+  const [marketplaceListings, setMarketplaceListings] = useState([]);
+  const [loading, setLoading] = useState(false);
 
-  const event = EVENT_NFTS[id];
+  useEffect(() => {
+    if (eventAddress) {
+      fetchEventDetails();
+    }
+    // eslint-disable-next-line
+  }, [eventAddress]);
 
-  if (!event) {
+  useEffect(() => {
+    if (eventAddress && isConnected && address) {
+      fetchUserTickets();
+      fetchMarketplaceListings();
+    }
+    // eslint-disable-next-line
+  }, [eventAddress, isConnected, address]);
+
+  const fetchEventDetails = async () => {
+    setLoading(true);
+    try {
+      const provider = new BrowserProvider(window.ethereum);
+      const eventContract = new Contract(eventAddress, EVENT_TICKET_ABI, provider);
+
+      const [
+        venue,
+        description,
+        startTime,
+        endTime,
+        baseMintPrice,
+        vipMintPrice,
+        maxSupply,
+        nextTicketId,
+        organizer,
+        vipConfig,
+        eventCancelled,
+        eventCompleted
+      ] = await Promise.all([
+        eventContract.venue(),
+        eventContract.eventDescription(),
+        eventContract.eventStartTime(),
+        eventContract.eventEndTime(),
+        eventContract.baseMintPrice(),
+        eventContract.vipMintPrice(),
+        eventContract.maxSupply(),
+        eventContract.nextTicketId(),
+        eventContract.eventOrganizer(),
+        eventContract.vipConfig(),
+        eventContract.eventCancelled(),
+        eventContract.eventCompleted(),
+      ]);
+
+      setEventInfo({
+        venue,
+        description,
+        startTime: new Date(Number(startTime) * 1000),
+        endTime: new Date(Number(endTime) * 1000),
+        baseMintPrice: formatEther(baseMintPrice),
+        vipMintPrice: formatEther(vipMintPrice),
+        organizer,
+        eventCancelled,
+        eventCompleted,
+      });
+
+      setEventStats({
+        maxSupply: Number(maxSupply),
+        totalMinted: Number(nextTicketId),
+        vipConfig: {
+          vipEnabled: vipConfig.vipEnabled,
+          totalVIPSeats: Number(vipConfig.totalVIPSeats),
+          vipSeatStart: Number(vipConfig.vipSeatStart),
+          vipSeatEnd: Number(vipConfig.vipSeatEnd),
+        },
+      });
+
+    } catch (error) {
+      console.error('Error fetching event details:', error);
+      toast.error('Failed to load event details');
+    }
+    setLoading(false);
+  };
+
+  const fetchUserTickets = async () => {
+    try {
+      const provider = new BrowserProvider(window.ethereum);
+      const eventContract = new Contract(eventAddress, EVENT_TICKET_ABI, provider);
+
+      const balance = await eventContract.balanceOf(address);
+      const ticketsData = [];
+
+      if (Number(balance) > 0) {
+        for (let i = 0; i < Number(balance); i++) {
+          const tokenId = await eventContract.tokenOfOwnerByIndex(address, i);
+          const ticketInfo = await eventContract.getTicketInfo(tokenId);
+          const isUsed = await eventContract.isTicketUsed(tokenId);
+
+          ticketsData.push({
+            tokenId: Number(tokenId),
+            ticketInfo,
+            isUsed,
+          });
+        }
+      }
+      setUserTickets(ticketsData);
+    } catch (error) {
+      console.error('Error fetching user tickets:', error);
+    }
+  };
+
+  const fetchMarketplaceListings = async () => {
+    try {
+      const provider = new BrowserProvider(window.ethereum);
+      const marketplace = new Contract(
+        CONTRACT_ADDRESSES.TICKET_MARKETPLACE,
+        TICKET_MARKETPLACE_ABI,
+        provider
+      );
+      const eventContract = new Contract(eventAddress, EVENT_TICKET_ABI, provider);
+
+      const totalSupply = await eventContract.nextTicketId();
+      const listingsData = [];
+
+      for (let tokenId = 0; tokenId < Number(totalSupply); tokenId++) {
+        try {
+          const listingId = await marketplace.getListingId(eventAddress, tokenId);
+          const listing = await marketplace.listings(listingId);
+          if (listing.active) {
+            const ticketInfo = await eventContract.getTicketInfo(tokenId);
+            listingsData.push({
+              tokenId,
+              listing,
+              ticketInfo,
+              price: formatEther(listing.price),
+              saleType: Number(listing.saleType), // 0 = FIXED_PRICE, 1 = AUCTION
+            });
+          }
+        } catch (err) {
+          // Skip if no listing exists
+        }
+      }
+      setMarketplaceListings(listingsData);
+    } catch (error) {
+      console.error('Error fetching marketplace listings:', error);
+    }
+  };
+
+  const cancelEvent = async () => {
+    if (!window.confirm('Are you sure you want to cancel this event? This action cannot be undone.')) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const provider = new BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const eventContract = new Contract(eventAddress, EVENT_TICKET_ABI, signer);
+
+      const tx = await eventContract.cancelEvent('Event cancelled by organizer');
+      await tx.wait();
+
+      toast.success('Event cancelled successfully');
+      fetchEventDetails();
+    } catch (error) {
+      console.error('Error cancelling event:', error);
+      toast.error('Failed to cancel event');
+    }
+    setLoading(false);
+  };
+
+  const completeEvent = async () => {
+    setLoading(true);
+    try {
+      const provider = new BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const eventContract = new Contract(eventAddress, EVENT_TICKET_ABI, signer);
+
+      const tx = await eventContract.markEventCompleted();
+      await tx.wait();
+
+      toast.success('Event marked as completed');
+      fetchEventDetails();
+    } catch (error) {
+      console.error('Error completing event:', error);
+      toast.error('Failed to complete event');
+    }
+    setLoading(false);
+  };
+
+  const buyTicket = async (tokenId, price) => {
+    setLoading(true);
+    try {
+      const provider = new BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const marketplace = new Contract(
+        CONTRACT_ADDRESSES.TICKET_MARKETPLACE,
+        TICKET_MARKETPLACE_ABI,
+        signer
+      );
+
+      const tx = await marketplace.buyItemWithDeposits(eventAddress, tokenId);
+      await tx.wait();
+
+      toast.success('Ticket purchased successfully!');
+      fetchUserTickets();
+      fetchMarketplaceListings();
+    } catch (error) {
+      console.error('Error buying ticket:', error);
+      toast.error('Failed to purchase ticket');
+    }
+    setLoading(false);
+  };
+
+  if (loading && !eventInfo) {
     return (
-      <div className="error-container">
-        <div className="error-content">
-          <h2>Event Not Found</h2>
-          <p>The event you're looking for doesn't exist.</p>
-          <Link to="/" className="btn-primary">
-            Back to Home
-          </Link>
-        </div>
+      <div className="loading-container">
+        <div className="loading">Loading event details...</div>
       </div>
     );
   }
 
-  // Mock seat map data
-  const generateSeatMap = () => {
-    const seats = [];
-    const rows = 8;
-    const cols = 10;
-    
-    for (let r = 1; r <= rows; r++) {
-      for (let c = 1; c <= cols; c++) {
-        const seatId = `R${r}C${c}`;
-        const isVIP = r <= 2; // First 2 rows are VIP
-        const isUnavailable = Math.random() < 0.15; // 15% of seats unavailable
-        
-        seats.push({
-          id: seatId,
-          label: seatId,
-          row: r,
-          col: c,
-          type: isVIP ? "VIP" : "Normal",
-          price: isVIP ? 2.5 : 0.8,
-          taken: isUnavailable,
-          perks: isVIP ? ["VIP Lounge", "Premium Bar"] : ["General Access"]
-        });
-      }
-    }
-    return seats;
-  };
+  if (!eventInfo) {
+    return (
+      <div className="error-container">
+        <h2>Event Not Found</h2>
+        <p>The event you're looking for doesn't exist or couldn't be loaded.</p>
+        <Link to="/" className="back-btn">Back to Events</Link>
+      </div>
+    );
+  }
 
-  const handleNftSelect = async (nft) => {
-    if (!nft.available) {
-      alert("This NFT is no longer available.");
-      return;
-    }
-
-    setSelectedNft(nft);
-    setPurchaseStep("seats");
-    setShowSeatModal(true);
-  };
-
-  const handlePurchase = async () => {
-    try {
-      const verified = await requestVerification(
-        "🎟️ Secure Purchase Verification",
-        `Complete verification to purchase ${selectedNft.name}`
-      );
-      
-      if (verified) {
-        alert(`🎉 Successfully purchased ${selectedNft.name}!`);
-        navigate("/profile");
-      }
-    } catch (err) {
-      console.error("Purchase failed:", err);
-      alert("❌ Purchase failed. Please try again.");
-    }
-  };
-
-  const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
-      weekday: "long",
-      year: "numeric",
-      month: "long", 
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit"
-    });
-  };
-
-  const totalPrice = selectedSeats.reduce((sum, seat) => sum + seat.price, 0);
+  const isOrganizer = isConnected && address && address.toLowerCase() === eventInfo.organizer.toLowerCase();
+  const eventStatus = eventInfo.eventCancelled ? 'Cancelled' :
+                      eventInfo.eventCompleted ? 'Completed' :
+                      Date.now() > eventInfo.endTime.getTime() ? 'Ended' :
+                      Date.now() > eventInfo.startTime.getTime() ? 'Live' : 'Upcoming';
 
   return (
-    <>
-      <div className="event-details-container">
-        {/* Breadcrumb */}
-        <div className="breadcrumb">
-          <Link to="/" className="breadcrumb-link">Home</Link>
-          <span className="breadcrumb-separator">/</span>
-          <span className="breadcrumb-current">{event.name}</span>
-        </div>
-
-        {/* Event Header */}
-        <div className="event-header">
-          <div className="event-hero">
-            <img src={event.image} alt={event.name} className="event-hero-image" />
-            <div className="event-hero-overlay">
-              <div className="event-stats">
-                <div className="stat">
-                  <span className="stat-label">Floor Price</span>
-                  <span className="stat-value">{event.floor} SOL</span>
-                </div>
-                <div className="stat">
-                  <span className="stat-label">Volume</span>
-                  <span className="stat-value">{event.volume} SOL</span>
-                </div>
-                <div className="stat">
-                  <span className="stat-label">Items</span>
-                  <span className="stat-value">{event.nfts.length}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="event-info">
-            <h1 className="event-title">{event.name}</h1>
-            <p className="event-description">{event.description}</p>
-            
-            <div className="event-meta">
-              <div className="meta-item">
-                <span className="meta-icon">📍</span>
-                <span className="meta-text">{event.venue}</span>
-              </div>
-              <div className="meta-item">
-                <span className="meta-icon">📅</span>
-                <span className="meta-text">{formatDate(event.date)}</span>
-              </div>
-              <div className="meta-item">
-                <span className="meta-icon">🏷️</span>
-                <span className="meta-text">{event.category}</span>
+    <div className="event-details-container">
+      <div className="form-page" style={{padding:0}}>
+        <div className="card" style={{marginBottom:16}}>
+          <div className="event-header-card">
+            <div className="event-cover"/>
+            <div style={{flex:1}}>
+              <h2 style={{marginBottom:6}}>{eventInfo.venue}</h2>
+              <p style={{color:'#cbd5e1', marginBottom:8}}>{eventInfo.description}</p>
+              <div className="kpi-grid">
+                <div className="kpi-card">Base: {eventInfo.baseMintPrice} AVAX</div>
+                <div className="kpi-card">VIP: {eventInfo.vipMintPrice} AVAX</div>
+                <div className="kpi-card">Supply: {eventStats.maxSupply}</div>
+                <div className="kpi-card">Minted: {eventStats.totalMinted}</div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* NFT Grid */}
-        <div className="nft-section">
-          <div className="section-header">
-            <h2>Available NFT Tickets</h2>
-            <div className="view-options">
-              <button className="view-btn active">Grid</button>
-              <button className="view-btn">List</button>
-            </div>
+        {/* Deposit to marketplace for this event */}
+        <EventDepositPanel eventAddress={eventAddress} />
+
+        {/* Listings available for this event */}
+        <div className="card" style={{marginTop:16}}>
+          <div className="form-header">
+            <h3>Live Listings</h3>
+            <p>Mint, bid or buy tickets listed for this event</p>
           </div>
-
-          <div className="nft-filters">
-            <button className="filter-btn active">All</button>
-            <button className="filter-btn">VIP</button>
-            <button className="filter-btn">Normal</button>
-            <button className="filter-btn">Available</button>
-          </div>
-
-          <div className="event-nft-grid">
-            {event.nfts.map(nft => (
-              <div 
-                key={nft.id} 
-                className={`event-nft-card ${!nft.available ? 'sold-out' : ''}`}
-                onClick={() => handleNftSelect(nft)}
-              >
-                <div className="nft-image">
-                  <img src={nft.image} alt={nft.name} />
-                  {!nft.available && <div className="sold-overlay">SOLD OUT</div>}
-                  <div className={`tier-badge ${nft.tier.toLowerCase()}`}>
-                    {nft.tier === "VIP" ? "👑" : "🎫"} {nft.tier}
-                  </div>
-                </div>
-                
-                <div className="nft-info">
-                  <h3 className="nft-name">{nft.name}</h3>
-                  <p className="nft-seat">Seat: {nft.seat}</p>
-                  
-                  <div className="nft-perks">
-                    {nft.perks.slice(0, 2).map(perk => (
-                      <span key={perk} className="perk-tag">{perk}</span>
-                    ))}
-                    {nft.perks.length > 2 && (
-                      <span className="perk-tag">+{nft.perks.length - 2} more</span>
-                    )}
-                  </div>
-
-                  <div className="nft-price-section">
-                    <div className="price">
-                      <span className="price-label">Price</span>
-                      <span className="price-value">{nft.price} SOL</span>
-                    </div>
-                    <button 
-                      className={`buy-btn ${!nft.available ? 'disabled' : ''}`}
-                      disabled={!nft.available}
-                    >
-                      {nft.available ? 'Buy Now' : 'Sold Out'}
-                    </button>
-                  </div>
-                </div>
+          <div className="listings-grid">
+            {marketplaceListings.length === 0 && <div className="help-text">No active listings yet.</div>}
+            {marketplaceListings.map(item => (
+              <div key={`l-${item.tokenId}`} className="ticket-card">
+                <div className="title">Token #{item.tokenId}</div>
+                <div className="meta">Seat #{item.ticketInfo.seatNumber} • {item.ticketInfo.isVIP? <span className="badge vip">VIP</span> : <span className="badge norm">Normal</span>}</div>
+                <div style={{marginBottom:8}}>Price: {item.price} AVAX</div>
+                {item.saleType === 0 ? (
+                  <button className="btn btn-primary" disabled={!isConnected} onClick={() => buyTicket(item.tokenId, item.price)}>
+                    Buy with Deposits
+                  </button>
+                ) : (
+                  <div className="help-text">Auction item — bid in Auction Chamber</div>
+                )}
               </div>
             ))}
           </div>
         </div>
-      </div>
 
-      {/* Seat Selection Modal */}
-      {showSeatModal && selectedNft && (
-        <div className="modal-overlay">
-          <div className="modal-content large">
-            <div className="modal-header">
-              <h2>
-                {purchaseStep === "seats" ? "Select Your Seats" : "Confirm Purchase"}
-              </h2>
-              <button 
-                className="modal-close"
-                onClick={() => {
-                  setShowSeatModal(false);
-                  setSelectedNft(null);
-                  setSelectedSeats([]);
-                  setPurchaseStep("select");
-                }}
-              >
-                ×
-              </button>
+        {/* Your tickets for this event with refund/use actions if available */}
+        {userTickets.length > 0 && (
+          <div className="card" style={{marginTop:16}}>
+            <div className="form-header">
+              <h3>My Tickets</h3>
+              <p>Manage tickets you own for this event</p>
             </div>
-
-            <div className="modal-body">
-              {purchaseStep === "seats" && (
-                <div className="seat-selection">
-                  <div className="selected-nft-info">
-                    <img src={selectedNft.image} alt={selectedNft.name} />
-                    <div className="nft-details">
-                      <h3>{selectedNft.name}</h3>
-                      <div className={`tier-badge ${selectedNft.tier.toLowerCase()}`}>
-                        {selectedNft.tier}
-                      </div>
-                      <div className="base-price">Base Price: {selectedNft.price} SOL</div>
-                    </div>
-                  </div>
-
-                  <div className="seat-selector-container">
-                    <div className="venue-layout">
-                      <div className="stage">🎵 STAGE</div>
-                      <SeatSelector
-                        seatMap={generateSeatMap()}
-                        onSelectionChange={setSelectedSeats}
-                        maxSelect={selectedNft.tier === "VIP" ? 2 : 4}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="selection-summary">
-                    <div className="summary-info">
-                      <div className="selected-count">
-                        Selected: {selectedSeats.length} seat(s)
-                      </div>
-                      <div className="total-price">
-                        Total: {totalPrice.toFixed(2)} SOL
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {purchaseStep === "confirm" && (
-                <div className="purchase-confirmation">
-                  <div className="confirmation-item">
-                    <img src={selectedNft.image} alt={selectedNft.name} />
-                    <div className="item-info">
-                      <h3>{selectedNft.name}</h3>
-                      <div className="confirmation-details">
-                        <div>Tier: {selectedNft.tier}</div>
-                        <div>Seats: {selectedSeats.map(s => s.label).join(", ")}</div>
-                        <div>Perks: {selectedNft.perks.join(", ")}</div>
-                      </div>
-                    </div>
-                    <div className="item-price">
-                      {totalPrice.toFixed(2)} SOL
-                    </div>
-                  </div>
-
-                  <div className="purchase-breakdown">
-                    <div className="breakdown-row">
-                      <span>Subtotal</span>
-                      <span>{totalPrice.toFixed(2)} SOL</span>
-                    </div>
-                    <div className="breakdown-row">
-                      <span>Platform Fee (2.5%)</span>
-                      <span>{(totalPrice * 0.025).toFixed(3)} SOL</span>
-                    </div>
-                    <div className="breakdown-row total">
-                      <span>Total</span>
-                      <span>{(totalPrice * 1.025).toFixed(3)} SOL</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="modal-footer">
-              {purchaseStep === "seats" && (
-                <>
-                  <button 
-                    className="btn-secondary"
-                    onClick={() => {
-                      setShowSeatModal(false);
-                      setSelectedNft(null);
-                      setSelectedSeats([]);
-                      setPurchaseStep("select");
-                    }}
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    className="btn-primary"
-                    disabled={selectedSeats.length === 0}
-                    onClick={() => setPurchaseStep("confirm")}
-                  >
-                    Continue ({selectedSeats.length} seat{selectedSeats.length !== 1 ? 's' : ''})
-                  </button>
-                </>
-              )}
-
-              {purchaseStep === "confirm" && (
-                <>
-                  <button 
-                    className="btn-secondary"
-                    onClick={() => setPurchaseStep("seats")}
-                  >
-                    Back
-                  </button>
-                  <button 
-                    className="btn-primary"
-                    onClick={handlePurchase}
-                  >
-                    Purchase {(totalPrice * 1.025).toFixed(3)} SOL
-                  </button>
-                </>
-              )}
+            <div className="listings-grid">
+              {userTickets.map(t => (
+                <UserTicketCard key={`t-${t.tokenId}`} eventAddress={eventAddress} ticket={t} onAction={() => { fetchUserTickets(); fetchMarketplaceListings(); }} />
+              ))}
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <HumanVerification
-        isOpen={isVerificationOpen}
-        onVerified={handleVerified}
-        onClose={handleClose}
-      />
-    </>
+        {isOrganizer && (
+          <div className="form-row" style={{marginTop:16}}>
+            {!eventInfo.eventCancelled && !eventInfo.eventCompleted && (
+              <button className="btn btn-danger" onClick={cancelEvent} disabled={loading}>Cancel Event</button>
+            )}
+            {!eventInfo.eventCompleted && (
+              <button className="btn" onClick={completeEvent} disabled={loading}>Mark Completed</button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EventDepositPanel({ eventAddress }) {
+  const [amount, setAmount] = React.useState('');
+  const [loading, setLoading] = React.useState(false);
+
+  const deposit = async () => {
+    setLoading(true);
+    try {
+      const provider = new BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const marketplace = new Contract(
+        CONTRACT_ADDRESSES.TICKET_MARKETPLACE,
+        TICKET_MARKETPLACE_ABI,
+        signer
+      );
+      const tx = await marketplace.depositForEvent(eventAddress, { value: (await import('ethers')).parseEther(String(amount||'0')) });
+      await tx.wait();
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  };
+
+  return (
+    <div className="card">
+      <div className="form-header">
+        <h3>Add Funds</h3>
+        <p>Deposit AVAX to enable quick purchases and bids for this event.</p>
+      </div>
+      <div className="deposit-card">
+        <input className="input" type="number" min={0} step={0.001} value={amount} placeholder="Amount in AVAX" onChange={(e)=>setAmount(e.target.value)} />
+        <button className="btn btn-primary" onClick={deposit} disabled={!amount || loading}>{loading? 'Depositing...' : 'Deposit'}</button>
+      </div>
+    </div>
+  );
+}
+
+function UserTicketCard({ eventAddress, ticket, onAction }) {
+  const [working, setWorking] = React.useState(false);
+
+  const refund = async () => {
+    setWorking(true);
+    try {
+      const provider = new BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const eventContract = new Contract(eventAddress, EVENT_TICKET_ABI, signer);
+      const tx = await eventContract.refundTicket(ticket.tokenId);
+      await tx.wait();
+      onAction?.();
+    } catch (e) { console.error(e); }
+    setWorking(false);
+  };
+
+  const useTicket = async () => {
+    setWorking(true);
+    try {
+      const provider = new BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const eventContract = new Contract(eventAddress, EVENT_TICKET_ABI, signer);
+      const tx = await eventContract.useTicket(ticket.tokenId);
+      await tx.wait();
+      onAction?.();
+    } catch (e) { console.error(e); }
+    setWorking(false);
+  };
+
+  return (
+    <div className="ticket-card">
+      <div className="title">Seat #{ticket.ticketInfo.seatNumber}</div>
+      <div className="meta">{ticket.ticketInfo.isVIP ? <span className="badge vip">VIP</span> : <span className="badge norm">Normal</span>} • {ticket.isUsed ? 'Used' : 'Active'}</div>
+      <div className="form-row">
+        {!ticket.isUsed && (
+          <button className="btn" onClick={useTicket} disabled={working}>Use Ticket</button>
+        )}
+        <button className="btn btn-danger" onClick={refund} disabled={working}>Request Refund</button>
+      </div>
+    </div>
   );
 }

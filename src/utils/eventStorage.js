@@ -1,70 +1,103 @@
-// Event storage utilities
-export const eventStorage = {
-  // Get all created events
-  getEvents: () => {
-    const events = localStorage.getItem('nfticket_created_events');
-    return events ? JSON.parse(events) : [];
-  },
+// Local storage utilities for caching event data
+const STORAGE_KEYS = {
+  EVENTS: 'ticketverse_events',
+  USER_EVENTS: 'ticketverse_user_events',
+  FAVORITES: 'ticketverse_favorites',
+  CACHE_TIMESTAMP: 'ticketverse_cache_timestamp',
+};
 
-  // Save a new event
-  saveEvent: (eventData) => {
-    const events = eventStorage.getEvents();
-    const newEvent = {
-      id: `event_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      ...eventData,
-      createdAt: new Date().toISOString(),
-      status: 'draft', // draft, upcoming, live, ended
-      ticketsSold: 0,
-      totalTickets: eventData.tiers?.reduce((sum, tier) => sum + (tier.quantity || 0), 0) || 0,
-      revenue: 0,
-      attendees: 0
-    };
-    
-    events.unshift(newEvent); // Add to beginning
-    localStorage.setItem('nfticket_created_events', JSON.stringify(events));
-    return newEvent;
-  },
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
-  // Update an existing event
-  updateEvent: (eventId, updates) => {
-    const events = eventStorage.getEvents();
-    const index = events.findIndex(e => e.id === eventId);
-    if (index !== -1) {
-      events[index] = { ...events[index], ...updates };
-      localStorage.setItem('nfticket_created_events', JSON.stringify(events));
-    }
-    return events[index];
-  },
-
-  // Delete an event
-  deleteEvent: (eventId) => {
-    const events = eventStorage.getEvents();
-    const filteredEvents = events.filter(e => e.id !== eventId);
-    localStorage.setItem('nfticket_created_events', JSON.stringify(filteredEvents));
-  },
-
-  // Get event by ID
-  getEventById: (eventId) => {
-    const events = eventStorage.getEvents();
-    return events.find(e => e.id === eventId);
+export const saveEventsToStorage = (events) => {
+  try {
+    localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(events));
+    localStorage.setItem(STORAGE_KEYS.CACHE_TIMESTAMP, Date.now().toString());
+  } catch (error) {
+    console.error('Failed to save events to storage:', error);
   }
 };
 
-// Sample event creator for testing
-export const createSampleEvent = () => {
-  const sampleEvent = {
-    name: "My First NFT Event",
-    date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days from now
-    venue: "Virtual Metaverse Hall",
-    address: "Online Event",
-    category: "Technology",
-    description: "An amazing NFT event created with NFTicket",
-    image: "https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&h=300&fit=crop",
-    earlyBird: { active: true, discount: 15 },
-    tiers: [
-      { name: "General", price: 0.05, quantity: 100, sold: 0 },
-      { name: "VIP", price: 0.15, quantity: 50, sold: 0 }
-    ]
-  };
-  return eventStorage.saveEvent(sampleEvent);
+export const getEventsFromStorage = () => {
+  try {
+    const timestamp = localStorage.getItem(STORAGE_KEYS.CACHE_TIMESTAMP);
+    if (!timestamp || Date.now() - parseInt(timestamp) > CACHE_DURATION) {
+      return null; // Cache expired
+    }
+    
+    const events = localStorage.getItem(STORAGE_KEYS.EVENTS);
+    return events ? JSON.parse(events) : null;
+  } catch (error) {
+    console.error('Failed to get events from storage:', error);
+    return null;
+  }
+};
+
+export const saveUserEventsToStorage = (userAddress, events) => {
+  try {
+    const userEvents = getUserEventsFromStorage() || {};
+    userEvents[userAddress] = events;
+    localStorage.setItem(STORAGE_KEYS.USER_EVENTS, JSON.stringify(userEvents));
+  } catch (error) {
+    console.error('Failed to save user events to storage:', error);
+  }
+};
+
+export const getUserEventsFromStorage = (userAddress = null) => {
+  try {
+    const userEvents = localStorage.getItem(STORAGE_KEYS.USER_EVENTS);
+    const parsed = userEvents ? JSON.parse(userEvents) : {};
+    return userAddress ? parsed[userAddress] || [] : parsed;
+  } catch (error) {
+    console.error('Failed to get user events from storage:', error);
+    return userAddress ? [] : {};
+  }
+};
+
+export const addToFavorites = (eventAddress) => {
+  try {
+    const favorites = getFavorites();
+    if (!favorites.includes(eventAddress)) {
+      favorites.push(eventAddress);
+      localStorage.setItem(STORAGE_KEYS.FAVORITES, JSON.stringify(favorites));
+    }
+  } catch (error) {
+    console.error('Failed to add to favorites:', error);
+  }
+};
+
+export const removeFromFavorites = (eventAddress) => {
+  try {
+    const favorites = getFavorites();
+    const index = favorites.indexOf(eventAddress);
+    if (index > -1) {
+      favorites.splice(index, 1);
+      localStorage.setItem(STORAGE_KEYS.FAVORITES, JSON.stringify(favorites));
+    }
+  } catch (error) {
+    console.error('Failed to remove from favorites:', error);
+  }
+};
+
+export const getFavorites = () => {
+  try {
+    const favorites = localStorage.getItem(STORAGE_KEYS.FAVORITES);
+    return favorites ? JSON.parse(favorites) : [];
+  } catch (error) {
+    console.error('Failed to get favorites from storage:', error);
+    return [];
+  }
+};
+
+export const isFavorite = (eventAddress) => {
+  return getFavorites().includes(eventAddress);
+};
+
+export const clearCache = () => {
+  try {
+    Object.values(STORAGE_KEYS).forEach(key => {
+      localStorage.removeItem(key);
+    });
+  } catch (error) {
+    console.error('Failed to clear cache:', error);
+  }
 };

@@ -1,510 +1,1145 @@
-import React, { useState } from "react";
-import { useAccount } from "wagmi";
-import { useNavigate } from "react-router-dom";
-
-// Mock NFT data with VIP and Normal types
-const MOCK_HELD_NFTS = [
-  {
-    id: "n1",
-    name: "VIP Experience #142",
-    event: "Crypto Music Fest 2025",
-    seat: "R1C12",
-    type: "VIP",
-    image: "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=300&h=200&fit=crop",
-    rarity: "Legendary",
-    attributes: [
-      { type: "Access Level", value: "VIP" },
-      { type: "Section", value: "Front Row" },
-      { type: "Perks", value: "Meet & Greet" },
-      { type: "Date", value: "Dec 2025" }
-    ],
-    mintDate: "2025-01-15",
-    lastSale: 2.5,
-    floor: 2.0,
-    listed: false
-  },
-  {
-    id: "n2", 
-    name: "Standard Pass #308",
-    event: "Digital Art Expo",
-    seat: "R7C15",
-    type: "Normal",
-    image: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=300&h=200&fit=crop",
-    rarity: "Common",
-    attributes: [
-      { type: "Access Level", value: "General" },
-      { type: "Section", value: "Main Floor" },
-      { type: "Perks", value: "Standard Access" },
-      { type: "Date", value: "Nov 2025" }
-    ],
-    mintDate: "2025-01-20",
-    lastSale: 1.2,
-    floor: 1.0,
-    listed: true,
-    listingPrice: 1.5
-  },
-  {
-    id: "n3",
-    name: "VIP Platinum #075",
-    event: "Web3 Conference",
-    seat: "R2C8",
-    type: "VIP",
-    image: "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=300&h=200&fit=crop",
-    rarity: "Rare",
-    attributes: [
-      { type: "Access Level", value: "VIP Platinum" },
-      { type: "Section", value: "Premium" },
-      { type: "Perks", value: "Full Access" },
-      { type: "Date", value: "Jan 2026" }
-    ],
-    mintDate: "2025-01-10",
-    lastSale: 3.2,
-    floor: 2.8,
-    listed: false
-  }
-];
-
-// Mock activity data
-const MOCK_ACTIVITY = [
-  {
-    id: "a1",
-    type: "mint",
-    item: "VIP Experience #142",
-    price: 2.0,
-    from: null,
-    to: "You",
-    timestamp: "2025-01-15T10:30:00Z",
-    txHash: "0x1234...5678"
-  },
-  {
-    id: "a2", 
-    type: "list",
-    item: "Standard Pass #308",
-    price: 1.5,
-    from: "You",
-    to: null,
-    timestamp: "2025-01-22T14:20:00Z",
-    txHash: "0xabcd...efgh"
-  },
-  {
-    id: "a3",
-    type: "sale",
-    item: "Rock Concert #421",
-    price: 1.8,
-    from: "You",
-    to: "0x9876...4321",
-    timestamp: "2025-01-18T16:45:00Z", 
-    txHash: "0xijkl...mnop"
-  }
-];
-
-// Mock offers data
-const MOCK_OFFERS = [
-  {
-    id: "o1",
-    item: "VIP Experience #142",
-    from: "0xabc1...def2",
-    price: 2.2,
-    expiry: "2025-01-30T23:59:59Z",
-    timestamp: "2025-01-25T10:00:00Z"
-  },
-  {
-    id: "o2",
-    item: "VIP Platinum #075", 
-    from: "0x1234...5678",
-    price: 3.0,
-    expiry: "2025-02-01T23:59:59Z",
-    timestamp: "2025-01-26T15:30:00Z"
-  }
-];
+import React, { useState, useEffect } from 'react';
+import { useAccount } from 'wagmi';
+import { BrowserProvider, Contract, parseEther, formatEther } from 'ethers';
+import { toast } from 'sonner';
+import {
+  CONTRACT_ADDRESSES,
+  USER_VERIFICATION_ABI,
+  TICKET_MARKETPLACE_ABI,
+  EVENT_FACTORY_ABI,
+} from '../lib/contracts';
 
 export default function Profile() {
   const { address, isConnected } = useAccount();
-  const navigate = useNavigate();
-  const [username, setUsername] = useState("");
-  const [activeTab, setActiveTab] = useState("collected");
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [activityFilter, setActivityFilter] = useState("all");
+  const [userProfile, setUserProfile] = useState({
+    verificationStatus: null,
+    balances: [],
+  });
+  const [loading, setLoading] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [selectedEvent, setSelectedEvent] = useState('');
+
+  useEffect(() => {
+    if (isConnected && address) {
+      fetchProfile();
+    }
+  }, [isConnected, address]);
+
+  const fetchProfile = async () => {
+    setLoading(true);
+    if (!window.ethereum) {
+      toast.error('Ethereum provider not found');
+      setLoading(false);
+      return;
+    }
+    try {
+      const provider = new BrowserProvider(window.ethereum);
+
+      // Verification Status
+      const verifier = new Contract(
+        CONTRACT_ADDRESSES.USER_VERIFIER,
+        USER_VERIFICATION_ABI,
+        provider
+      );
+      const statusArr = await verifier.getUserStatus(address);
+
+      const status = {
+        isVerified: statusArr[0],
+        level: Number(statusArr[1]),
+        verifiedAt: new Date(Number(statusArr[2]) * 1000),
+        expiresAt: new Date(Number(statusArr[3]) * 1000),
+        suspended: statusArr[4],
+        suspendedUntil:
+          Number(statusArr[5]) > 0 ? new Date(Number(statusArr[5]) * 1000) : null,
+        suspendedReason: Number(statusArr[6]),
+      };
+
+      // Events Created
+      const factory = new Contract(
+        CONTRACT_ADDRESSES.EVENT_FACTORY,
+        EVENT_FACTORY_ABI,
+        provider
+      );
+      let userEvents = [];
+      try {
+        userEvents = await factory.getAllOrganizerEvents(address);
+      } catch {
+        userEvents = [];
+      }
+
+      // Balances for each event
+      const marketplace = new Contract(
+        CONTRACT_ADDRESSES.TICKET_MARKETPLACE,
+        TICKET_MARKETPLACE_ABI,
+        provider
+      );
+      const balances = [];
+      for (let ev of userEvents) {
+        try {
+          const res = await marketplace.getUserBalance(address, ev);
+          balances.push({
+            event: ev,
+            totalDeposited: Number(formatEther(res[0])),
+            available: Number(formatEther(res[1])),
+            locked: Number(formatEther(res[2])),
+            totalWithdrawn: Number(formatEther(res[3])),
+            profits: Number(formatEther(res[4])),
+            maxWithdrawable: Number(formatEther(res[5])),
+          });
+        } catch {
+          balances.push({
+            event: ev,
+            totalDeposited: 0,
+            available: 0,
+            locked: 0,
+            totalWithdrawn: 0,
+            profits: 0,
+            maxWithdrawable: 0,
+          });
+        }
+      }
+
+      setUserProfile({ verificationStatus: status, balances });
+      if (userEvents.length > 0) setSelectedEvent(userEvents[0]);
+    } catch (e) {
+      toast.error('Failed to load profile');
+      console.error(e);
+    }
+    setLoading(false);
+  };
+
+  const withdrawFunds = async () => {
+    if (!withdrawAmount || isNaN(withdrawAmount) || Number(withdrawAmount) <= 0) {
+      toast.error('Enter valid withdraw amount');
+      return;
+    }
+    if (!selectedEvent) {
+      toast.error('Select an event');
+      return;
+    }
+    setLoading(true);
+    try {
+      const provider = new BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const marketplace = new Contract(
+        CONTRACT_ADDRESSES.TICKET_MARKETPLACE,
+        TICKET_MARKETPLACE_ABI,
+        signer
+      );
+      const tx = await marketplace.withdrawFunds(selectedEvent, parseEther(withdrawAmount));
+      await tx.wait();
+      toast.success('Withdrawal successful');
+      setWithdrawAmount('');
+      fetchProfile();
+    } catch (e) {
+      toast.error('Failed to withdraw');
+      console.error(e);
+    }
+    setLoading(false);
+  };
+
+  const collectProfits = async () => {
+    if (!selectedEvent) {
+      toast.error('Select an event');
+      return;
+    }
+    setLoading(true);
+    try {
+      const provider = new BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const marketplace = new Contract(
+        CONTRACT_ADDRESSES.TICKET_MARKETPLACE,
+        TICKET_MARKETPLACE_ABI,
+        signer
+      );
+      const tx = await marketplace.collectProfits(selectedEvent);
+      await tx.wait();
+      toast.success('Profits collected');
+      fetchProfile();
+    } catch (e) {
+      toast.error('Failed to collect profits');
+      console.error(e);
+    }
+    setLoading(false);
+  };
+
+  const getLevelName = (lvl) => {
+    const levels = ['None', 'Basic', 'Premium', 'VIP', 'Admin'];
+    return levels[lvl] || 'Unknown';
+  };
+
+  const getLevelColor = (lvl) => {
+    const colors = {
+      0: '#6c757d',
+      1: '#28a745', 
+      2: '#007bff',
+      3: '#ffc107',
+      4: '#dc3545'
+    };
+    return colors[lvl] || '#6c757d';
+  };
 
   if (!isConnected) {
     return (
-      <div className="profile-page">
-        <div className="connect-prompt">
-          <div className="prompt-content">
-            <div className="prompt-icon">👛</div>
-            <h2>Connect Your Wallet</h2>
-            <p>Connect your wallet to view your NFT collection and activity</p>
-            <button 
-              className="btn-primary"
-              onClick={() => navigate("/")}
-            >
-              Go to Home
-            </button>
+      <div className="app-container">
+        <div className="main-content">
+          <div className="hero-collection">
+            <div className="hero-content">
+              <h2>Connect Your Wallet</h2>
+              <p>Please connect your wallet to view your profile</p>
+              <button className="connect-wallet-btn">Connect Wallet</button>
+            </div>
           </div>
         </div>
+        <ProfileCSS />
       </div>
     );
   }
 
-  const shortAddress = address ? `${address.slice(0, 6)}...${address.slice(-4)}` : "";
+  return (
+    <div className="app-container">
+      <div className="main-content">
+        {/* Header */}
+        <header className="header">
+          <div className="search-container">
+            <span className="search-icon">🔍</span>
+            <input type="text" className="search-input" placeholder="Search..." />
+          </div>
+          <div className="header-actions">
+            <div className="wallet-info">
+              <span>👤 Profile</span>
+            </div>
+          </div>
+        </header>
 
-  const handleSell = (nft) => {
-    navigate("/auction", { state: { nft, mode: "sell" } });
-  };
+        <div className="content-layout">
+          <div className="main-panel">
+            {/* Profile Hero */}
+            <div className="hero-collection">
+              <div className="hero-content">
+                <div className="collection-header">
+                  <div className="collection-avatar" style={{background: 'linear-gradient(135deg, #f093fb, #f5576c)'}}></div>
+                  <div className="collection-info">
+                    <h1>
+                      My Profile
+                      <span className="verified-badge">✓</span>
+                    </h1>
+                    <p className="collection-by">{address}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
 
-  const handleTransfer = (nft) => {
-    // Implement transfer logic
-    alert(`Transfer functionality for ${nft.name} - Coming soon!`);
-  };
+            {/* Verification Status */}
+            <section className="section-header">
+              <div>
+                <h2 className="section-title">Verification Status</h2>
+                <p className="section-subtitle">Your account verification level</p>
+              </div>
+            </section>
 
-  const getFilteredNFTs = () => {
-    if (typeFilter === "all") return MOCK_HELD_NFTS;
-    return MOCK_HELD_NFTS.filter(nft => nft.type.toLowerCase() === typeFilter);
-  };
+            <div className="verification-card">
+              {userProfile.verificationStatus ? (
+                <div className="verification-content">
+                  <div className="verification-main">
+                    <div className="status-badge" style={{
+                      backgroundColor: getLevelColor(userProfile.verificationStatus.level),
+                      color: 'white'
+                    }}>
+                      {userProfile.verificationStatus.isVerified ? '✓ Verified' : '✗ Not Verified'}
+                    </div>
+                    <div className="status-level">
+                      {getLevelName(userProfile.verificationStatus.level)}
+                    </div>
+                  </div>
+                  {userProfile.verificationStatus.isVerified && (
+                    <div className="verification-details">
+                      <div className="detail-item">
+                        <span className="detail-label">Verified:</span>
+                        <span className="detail-value">
+                          {userProfile.verificationStatus.verifiedAt.toLocaleDateString()}
+                        </span>
+                      </div>
+                      <div className="detail-item">
+                        <span className="detail-label">Expires:</span>
+                        <span className="detail-value">
+                          {userProfile.verificationStatus.expiresAt.toLocaleDateString()}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="loading">
+                  <div className="spinner"></div>
+                </div>
+              )}
+            </div>
 
-  const getFilteredActivity = () => {
-    if (activityFilter === "all") return MOCK_ACTIVITY;
-    return MOCK_ACTIVITY.filter(activity => activity.type === activityFilter);
-  };
+            {/* Account Features */}
+            <section className="section-header">
+              <div>
+                <h2 className="section-title">Account Features</h2>
+                <p className="section-subtitle">Available features based on verification</p>
+              </div>
+            </section>
 
-  const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
+            <div className="features-grid">
+              <FeatureCard
+                icon="🎫"
+                title="Event Creation"
+                enabled={userProfile.verificationStatus?.isVerified}
+                description={userProfile.verificationStatus?.isVerified ? "Create events" : "Requires verification"}
+              />
+              <FeatureCard
+                icon="🛍️"
+                title="Marketplace Trading"
+                enabled={userProfile.verificationStatus?.isVerified}
+                description={userProfile.verificationStatus?.isVerified ? "Buy & sell tickets" : "Limited access"}
+              />
+              <FeatureCard
+                icon="⚡"
+                title="Auction Participation"
+                enabled={userProfile.verificationStatus?.isVerified}
+                description={userProfile.verificationStatus?.isVerified ? "Bid & create auctions" : "View only"}
+              />
+              <FeatureCard
+                icon="👑"
+                title="VIP Benefits"
+                enabled={userProfile.verificationStatus?.level >= 3}
+                description={userProfile.verificationStatus?.level >= 3 ? "VIP member perks" : "Standard access"}
+              />
+            </div>
 
-  const getActivityIcon = (type) => {
-    switch (type) {
-      case 'mint': return '🎨';
-      case 'list': return '🏷️';
-      case 'sale': return '💰';
-      case 'transfer': return '📤';
-      case 'bid': return '🔨';
-      default: return '📝';
-    }
-  };
+            {/* Financial Overview */}
+            {userProfile.balances.length > 0 && (
+              <>
+                <section className="section-header">
+                  <div>
+                    <h2 className="section-title">Financial Overview</h2>
+                    <p className="section-subtitle">Manage your balances and earnings</p>
+                  </div>
+                </section>
 
-  const getActivityLabel = (type) => {
-    switch (type) {
-      case 'mint': return 'Minted';
-      case 'list': return 'Listed';
-      case 'sale': return 'Sold';
-      case 'transfer': return 'Transferred';
-      case 'bid': return 'Bid Placed';
-      default: return 'Activity';
-    }
-  };
+                <div className="financial-section">
+                  <div className="event-selector">
+                    <label className="selector-label">Select Event:</label>
+                    <select
+                      className="event-select"
+                      value={selectedEvent}
+                      onChange={(e) => setSelectedEvent(e.target.value)}
+                    >
+                      {userProfile.balances.map((b) => (
+                        <option key={b.event} value={b.event}>
+                          {`${b.event.slice(0, 8)}...${b.event.slice(-6)}`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-  const getRarityClass = (rarity) => {
-    return rarity?.toLowerCase() || 'common';
-  };
+                  <FinancialCards
+                    balances={userProfile.balances}
+                    selected={selectedEvent}
+                    withdrawAmount={withdrawAmount}
+                    setWithdrawAmount={setWithdrawAmount}
+                    onWithdraw={withdrawFunds}
+                    onCollect={collectProfits}
+                    loading={loading}
+                  />
+                </div>
+              </>
+            )}
 
-  const getTypeIcon = (type) => {
-    return type === "VIP" ? "👑" : "🎫";
+            {/* Account Actions */}
+            <section className="section-header">
+              <div>
+                <h2 className="section-title">Account Actions</h2>
+                <p className="section-subtitle">Manage your account settings</p>
+              </div>
+            </section>
+
+            <div className="actions-grid">
+              <button className="action-btn primary" disabled={!userProfile.verificationStatus?.isVerified}>
+                Request Verification Upgrade
+              </button>
+              <button className="action-btn secondary">
+                View Transaction History
+              </button>
+              <button className="action-btn secondary">
+                Export Account Data
+              </button>
+              <button className="action-btn danger">
+                Deactivate Account
+              </button>
+            </div>
+          </div>
+
+          {/* Right Panel */}
+          <div className="right-panel">
+            <div className="trending-panel">
+              <div className="panel-header">
+                <h3 className="panel-title">Account Overview</h3>
+              </div>
+              <div className="overview-stats">
+                <div className="overview-item">
+                  <div className="overview-icon">🎫</div>
+                  <div className="overview-info">
+                    <div className="overview-label">Events Created</div>
+                    <div className="overview-value">{userProfile.balances.length}</div>
+                  </div>
+                </div>
+                <div className="overview-item">
+                  <div className="overview-icon">💰</div>
+                  <div className="overview-info">
+                    <div className="overview-label">Total Revenue</div>
+                    <div className="overview-value">
+                      {userProfile.balances.reduce((sum, b) => sum + b.profits, 0).toFixed(4)} AVAX
+                    </div>
+                  </div>
+                </div>
+                <div className="overview-item">
+                  <div className="overview-icon">🔒</div>
+                  <div className="overview-info">
+                    <div className="overview-label">Locked Funds</div>
+                    <div className="overview-value">
+                      {userProfile.balances.reduce((sum, b) => sum + b.locked, 0).toFixed(4)} AVAX
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <ProfileCSS />
+    </div>
+  );
+}
+
+function FeatureCard({ icon, title, enabled, description }) {
+  return (
+    <div className={`feature-card ${enabled ? 'enabled' : 'disabled'}`}>
+      <div className="feature-icon">{icon}</div>
+      <div className="feature-content">
+        <h3 className="feature-title">{title}</h3>
+        <p className="feature-description">{description}</p>
+      </div>
+      <div className={`feature-status ${enabled ? 'active' : 'inactive'}`}>
+        {enabled ? '✓' : '○'}
+      </div>
+    </div>
+  );
+}
+
+function FinancialCards({
+  balances,
+  selected,
+  withdrawAmount,
+  setWithdrawAmount,
+  onWithdraw,
+  onCollect,
+  loading,
+}) {
+  const selectedBalance = balances.find((b) => b.event === selected) || balances[0] || {
+    available: 0,
+    locked: 0,
+    profits: 0,
   };
 
   return (
-    <div className="profile-page">
-      {/* Profile Header */}
-      <div className="profile-header">
-        <div className="profile-banner"></div>
-        <div className="profile-info">
-          <div className="profile-avatar">
-            <div className="avatar-placeholder">{shortAddress.slice(0, 2).toUpperCase()}</div>
-          </div>
-          <div className="profile-details">
-            <div className="profile-name">
-              <h1>{username || `User ${shortAddress}`}</h1>
-              <div className="profile-address">{shortAddress}</div>
-            </div>
-            <div className="profile-stats">
-              <div className="stat">
-                <div className="stat-number">{MOCK_HELD_NFTS.length}</div>
-                <div className="stat-label">Items</div>
-              </div>
-              <div className="stat">
-                <div className="stat-number">{MOCK_HELD_NFTS.filter(nft => nft.type === "VIP").length}</div>
-                <div className="stat-label">VIP</div>
-              </div>
-              <div className="stat">
-                <div className="stat-number">{MOCK_HELD_NFTS.filter(nft => nft.listed).length}</div>
-                <div className="stat-label">Listed</div>
-              </div>
-              <div className="stat">
-                <div className="stat-number">{MOCK_ACTIVITY.filter(a => a.type === 'sale').length}</div>
-                <div className="stat-label">Sold</div>
-              </div>
-            </div>
-          </div>
-          <div className="profile-actions">
-            <button className="btn-secondary">Share Profile</button>
-            <button className="btn-primary">Edit Profile</button>
-          </div>
+    <div className="financial-cards">
+      <div className="financial-card">
+        <div className="card-header">
+          <h3>Available Balance</h3>
+          <div className="card-amount">{selectedBalance.available.toFixed(4)} AVAX</div>
+        </div>
+        <div className="card-actions">
+          <input
+            type="number"
+            className="withdraw-input"
+            placeholder="Amount to withdraw"
+            value={withdrawAmount}
+            onChange={(e) => setWithdrawAmount(e.target.value)}
+            disabled={loading}
+            min="0"
+            step="0.0001"
+          />
+          <button
+            className="action-btn primary"
+            onClick={onWithdraw}
+            disabled={loading || selectedBalance.available === 0}
+          >
+            {loading ? 'Processing...' : 'Withdraw'}
+          </button>
         </div>
       </div>
 
-      {/* Username Section */}
-      <div className="username-section">
-        <div className="username-form">
-          <label>Display Name</label>
-          <div className="input-group">
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="Enter your display name"
-              className="username-input"
-            />
-            <button className="btn-save">Save</button>
-          </div>
+      <div className="financial-card">
+        <div className="card-header">
+          <h3>Locked Balance</h3>
+          <div className="card-amount">{selectedBalance.locked.toFixed(4)} AVAX</div>
         </div>
+        <p className="card-description">Funds in active listings and bids</p>
       </div>
 
-      {/* Profile Tabs */}
-      <div className="profile-tabs">
-        <button 
-          className={`tab ${activeTab === "collected" ? "active" : ""}`}
-          onClick={() => setActiveTab("collected")}
+      <div className="financial-card">
+        <div className="card-header">
+          <h3>Profits</h3>
+          <div className="card-amount">{selectedBalance.profits.toFixed(4)} AVAX</div>
+        </div>
+        <button
+          className="action-btn primary full-width"
+          onClick={onCollect}
+          disabled={loading || selectedBalance.profits === 0}
         >
-          <span className="tab-icon">🎨</span>
-          <span className="tab-label">Collected ({MOCK_HELD_NFTS.length})</span>
+          {loading ? 'Processing...' : 'Collect Profits'}
         </button>
-        <button 
-          className={`tab ${activeTab === "activity" ? "active" : ""}`}
-          onClick={() => setActiveTab("activity")}
-        >
-          <span className="tab-icon">📈</span>
-          <span className="tab-label">Activity</span>
-        </button>
-        <button 
-          className={`tab ${activeTab === "offers" ? "active" : ""}`}
-          onClick={() => setActiveTab("offers")}
-        >
-          <span className="tab-icon">💌</span>
-          <span className="tab-label">Offers ({MOCK_OFFERS.length})</span>
-        </button>
-      </div>
-
-      {/* Tab Content */}
-      <div className="tab-content">
-        {/* Collected Tab */}
-        {activeTab === "collected" && (
-          <div className="collected-section">
-            <div className="collection-filters">
-              <div className="filter-group">
-                <label>Filter by Type</label>
-                <div className="filter-buttons">
-                  <button 
-                    className={`filter-btn ${typeFilter === "all" ? "active" : ""}`}
-                    onClick={() => setTypeFilter("all")}
-                  >
-                    All ({MOCK_HELD_NFTS.length})
-                  </button>
-                  <button 
-                    className={`filter-btn ${typeFilter === "vip" ? "active" : ""}`}
-                    onClick={() => setTypeFilter("vip")}
-                  >
-                    👑 VIP ({MOCK_HELD_NFTS.filter(nft => nft.type === "VIP").length})
-                  </button>
-                  <button 
-                    className={`filter-btn ${typeFilter === "normal" ? "active" : ""}`}
-                    onClick={() => setTypeFilter("normal")}
-                  >
-                    🎫 Normal ({MOCK_HELD_NFTS.filter(nft => nft.type === "Normal").length})
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {getFilteredNFTs().length === 0 ? (
-              <div className="empty-collection">
-                <div className="empty-icon">🎟️</div>
-                <h3>No Items Found</h3>
-                <p>You don't have any items matching the current filter.</p>
-                <button 
-                  className="btn-primary"
-                  onClick={() => navigate("/auction")}
-                >
-                  Browse Marketplace
-                </button>
-              </div>
-            ) : (
-              <div className="nft-grid">
-                {getFilteredNFTs().map(nft => (
-                  <div key={nft.id} className="nft-card">
-                    <div className="nft-image">
-                      <img src={nft.image} alt={nft.name} />
-                      <div className={`nft-rarity ${getRarityClass(nft.rarity)}`}>
-                        {nft.rarity}
-                      </div>
-                      <div className={`nft-type ${nft.type.toLowerCase()}`}>
-                        {getTypeIcon(nft.type)} {nft.type}
-                      </div>
-                      {nft.listed && (
-                        <div className="listing-badge">
-                          🏷️ Listed at {nft.listingPrice} AVAX
-                        </div>
-                      )}
-                    </div>
-                    
-                    <div className="nft-content">
-                      <div className="nft-header">
-                        <h3 className="nft-name">{nft.name}</h3>
-                        <div className="nft-event">{nft.event}</div>
-                      </div>
-                      
-                      <div className="nft-metadata">
-                        <div className="metadata-item">
-                          <span className="label">Seat:</span>
-                          <span className="value">{nft.seat}</span>
-                        </div>
-                        <div className="metadata-item">
-                          <span className="label">Minted:</span>
-                          <span className="value">{formatDate(nft.mintDate)}</span>
-                        </div>
-                        <div className="metadata-item">
-                          <span className="label">Last Sale:</span>
-                          <span className="value">{nft.lastSale} AVAX</span>
-                        </div>
-                        <div className="metadata-item">
-                          <span className="label">Floor:</span>
-                          <span className="value">{nft.floor} AVAX</span>
-                        </div>
-                      </div>
-                      
-                      <div className="nft-attributes">
-                        {nft.attributes.slice(0, 4).map((attr, idx) => (
-                          <div key={idx} className="attribute">
-                            <div className="attribute-type">{attr.type}</div>
-                            <div className="attribute-value">{attr.value}</div>
-                          </div>
-                        ))}
-                      </div>
-                      
-                      <div className="nft-actions">
-                        <button 
-                          className="btn-sell"
-                          onClick={() => handleSell(nft)}
-                        >
-                          {nft.listed ? "Update Listing" : "Sell"}
-                        </button>
-                        <button 
-                          className="btn-transfer"
-                          onClick={() => handleTransfer(nft)}
-                        >
-                          Transfer
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Activity Tab */}
-        {activeTab === "activity" && (
-          <div className="activity-section">
-            <div className="activity-header">
-              <h3>Recent Activity</h3>
-              <select 
-                className="activity-filter"
-                value={activityFilter}
-                onChange={(e) => setActivityFilter(e.target.value)}
-              >
-                <option value="all">All Activity</option>
-                <option value="mint">Mints</option>
-                <option value="list">Listings</option>
-                <option value="sale">Sales</option>
-                <option value="transfer">Transfers</option>
-              </select>
-            </div>
-            
-            <div className="activity-list">
-              {getFilteredActivity().map(activity => (
-                <div key={activity.id} className="activity-item">
-                  <div className="activity-icon">
-                    {getActivityIcon(activity.type)}
-                  </div>
-                  <div className="activity-details">
-                    <div className="activity-main">
-                      <span className="activity-action">{getActivityLabel(activity.type)}</span>
-                      <span className="activity-item-name">{activity.item}</span>
-                      {activity.price && (
-                        <span className="activity-price">{activity.price} AVAX</span>
-                      )}
-                    </div>
-                    <div className="activity-meta">
-                      <span>{formatDate(activity.timestamp)}</span>
-                      {activity.from && activity.from !== "You" && (
-                        <span>from {activity.from.slice(0, 6)}...{activity.from.slice(-4)}</span>
-                      )}
-                      {activity.to && activity.to !== "You" && (
-                        <span>to {activity.to.slice(0, 6)}...{activity.to.slice(-4)}</span>
-                      )}
-                      <a 
-                        href={`https://snowtrace.io/tx/${activity.txHash}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="activity-hash"
-                      >
-                        {activity.txHash.slice(0, 6)}...{activity.txHash.slice(-4)}
-                      </a>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Offers Tab */}
-        {activeTab === "offers" && (
-          <div className="offers-section">
-            {MOCK_OFFERS.length === 0 ? (
-              <div className="empty-offers">
-                <div className="empty-icon">💌</div>
-                <h3>No Offers Yet</h3>
-                <p>You don't have any offers on your items. List them on the marketplace to start receiving offers!</p>
-                <button 
-                  className="btn-primary"
-                  onClick={() => navigate("/auction")}
-                >
-                  Go to Marketplace
-                </button>
-              </div>
-            ) : (
-              <div className="offers-list">
-                {MOCK_OFFERS.map(offer => (
-                  <div key={offer.id} className="offer-item">
-                    <div className="offer-details">
-                      <h4>{offer.item}</h4>
-                      <div className="offer-info">
-                        <span className="offer-price">{offer.price} AVAX</span>
-                        <span className="offer-from">from {offer.from.slice(0, 6)}...{offer.from.slice(-4)}</span>
-                        <span className="offer-expiry">expires {formatDate(offer.expiry)}</span>
-                      </div>
-                      <div className="offer-timestamp">
-                        Received {formatDate(offer.timestamp)}
-                      </div>
-                    </div>
-                    <div className="offer-actions">
-                      <button className="btn-primary">Accept</button>
-                      <button className="btn-secondary">Counter</button>
-                      <button className="btn-decline">Decline</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+        <p className="card-description">Lifetime earnings from sales</p>
       </div>
     </div>
+  );
+}
+
+function ProfileCSS() {
+  return (
+    <style jsx>{`
+      .app-container {
+        min-height: 100vh;
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #1a1a2e 100%);
+        color: #ffffff;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      }
+
+      .main-content {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 0 20px;
+      }
+
+      /* Header */
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 24px 0;
+        margin-bottom: 32px;
+      }
+
+      .search-container {
+        position: relative;
+        max-width: 500px;
+        flex: 1;
+        margin-right: 24px;
+      }
+
+      .search-input {
+        width: 100%;
+        padding: 12px 16px 12px 44px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        color: #ffffff;
+        font-size: 14px;
+        transition: all 0.2s ease;
+      }
+
+      .search-input:focus {
+        outline: none;
+        border-color: rgba(32, 129, 226, 0.5);
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .search-input::placeholder {
+        color: rgba(255, 255, 255, 0.5);
+      }
+
+      .search-icon {
+        position: absolute;
+        left: 16px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: rgba(255, 255, 255, 0.5);
+        font-size: 16px;
+      }
+
+      .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+
+      .wallet-info {
+        padding: 8px 16px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 20px;
+        font-size: 14px;
+        font-weight: 500;
+      }
+
+      /* Content Layout */
+      .content-layout {
+        display: flex;
+        gap: 32px;
+      }
+
+      .main-panel {
+        flex: 1;
+      }
+
+      .right-panel {
+        width: 320px;
+        flex-shrink: 0;
+      }
+
+      /* Hero Collection */
+      .hero-collection {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        padding: 32px;
+        margin-bottom: 32px;
+        backdrop-filter: blur(20px);
+      }
+
+      .hero-content {
+        text-align: center;
+      }
+
+      .collection-header {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 24px;
+        margin-bottom: 24px;
+      }
+
+      .collection-avatar {
+        width: 120px;
+        height: 120px;
+        border-radius: 50%;
+        border: 4px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .collection-info h1 {
+        font-size: 32px;
+        font-weight: 700;
+        margin: 0 0 8px 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .verified-badge {
+        background: #2081e2;
+        color: white;
+        border-radius: 50%;
+        width: 24px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+      }
+
+      .collection-by {
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 16px;
+        margin: 0;
+        word-break: break-all;
+        font-family: 'Courier New', monospace;
+      }
+
+      .connect-wallet-btn {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: white;
+        border: none;
+        padding: 16px 32px;
+        border-radius: 12px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      .connect-wallet-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+      }
+
+      /* Section Headers */
+      .section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin: 48px 0 24px 0;
+      }
+
+      .section-title {
+        font-size: 24px;
+        font-weight: 700;
+        margin: 0 0 4px 0;
+        color: #ffffff;
+      }
+
+      .section-subtitle {
+        font-size: 14px;
+        color: rgba(255, 255, 255, 0.6);
+        margin: 0;
+      }
+
+      /* Verification Card */
+      .verification-card {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        padding: 24px;
+        margin-bottom: 32px;
+      }
+
+      .verification-content {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .verification-main {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+
+      .status-badge {
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-size: 14px;
+        font-weight: 600;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .status-level {
+        font-size: 20px;
+        font-weight: 700;
+        color: #ffffff;
+      }
+
+      .verification-details {
+        display: flex;
+        gap: 24px;
+        flex-wrap: wrap;
+      }
+
+      .detail-item {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .detail-label {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.6);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .detail-value {
+        font-size: 14px;
+        font-weight: 600;
+        color: #ffffff;
+      }
+
+      /* Features Grid */
+      .features-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 16px;
+        margin-bottom: 32px;
+      }
+
+      .feature-card {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        padding: 20px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        transition: all 0.2s ease;
+      }
+
+      .feature-card.enabled {
+        background: rgba(32, 129, 226, 0.1);
+        border-color: rgba(32, 129, 226, 0.3);
+      }
+
+      .feature-card:hover {
+        transform: translateY(-2px);
+        background: rgba(255, 255, 255, 0.05);
+      }
+
+      .feature-icon {
+        font-size: 32px;
+        width: 48px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.05);
+      }
+
+      .feature-content {
+        flex: 1;
+      }
+
+      .feature-title {
+        font-size: 16px;
+        font-weight: 600;
+        margin: 0 0 4px 0;
+        color: #ffffff;
+      }
+
+      .feature-description {
+        font-size: 14px;
+        color: rgba(255, 255, 255, 0.7);
+        margin: 0;
+      }
+
+      .feature-status {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .feature-status.active {
+        background: #10b981;
+        color: white;
+      }
+
+      .feature-status.inactive {
+        background: rgba(255, 255, 255, 0.1);
+        color: rgba(255, 255, 255, 0.5);
+      }
+
+      /* Financial Section */
+      .financial-section {
+        margin-bottom: 32px;
+      }
+
+      .event-selector {
+        margin-bottom: 24px;
+      }
+
+      .selector-label {
+        display: block;
+        font-size: 14px;
+        font-weight: 600;
+        color: #ffffff;
+        margin-bottom: 8px;
+      }
+
+      .event-select {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        padding: 12px 16px;
+        color: #ffffff;
+        font-size: 14px;
+        width: 300px;
+        cursor: pointer;
+      }
+
+      .event-select:focus {
+        outline: none;
+        border-color: rgba(32, 129, 226, 0.5);
+      }
+
+      .financial-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 20px;
+      }
+
+      .financial-card {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        padding: 24px;
+        transition: all 0.2s ease;
+      }
+
+      .financial-card:hover {
+        transform: translateY(-2px);
+        background: rgba(255, 255, 255, 0.05);
+      }
+
+      .card-header {
+        margin-bottom: 16px;
+      }
+
+      .card-header h3 {
+        font-size: 16px;
+        font-weight: 600;
+        color: #ffffff;
+        margin: 0 0 8px 0;
+      }
+
+      .card-amount {
+        font-size: 24px;
+        font-weight: 700;
+        color: #2081e2;
+        font-family: 'Courier New', monospace;
+      }
+
+      .card-actions {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+
+      .withdraw-input {
+        flex: 1;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        padding: 10px 12px;
+        color: #ffffff;
+        font-size: 14px;
+      }
+
+      .withdraw-input:focus {
+        outline: none;
+        border-color: rgba(32, 129, 226, 0.5);
+      }
+
+      .withdraw-input::placeholder {
+        color: rgba(255, 255, 255, 0.5);
+      }
+
+      .card-description {
+        font-size: 14px;
+        color: rgba(255, 255, 255, 0.6);
+        margin: 12px 0 0 0;
+      }
+
+      /* Action Buttons */
+      .action-btn {
+        padding: 12px 20px;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        border: none;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+      }
+
+      .action-btn.primary {
+        background: linear-gradient(135deg, #2081e2, #1c7ed6);
+        color: white;
+      }
+
+      .action-btn.primary:hover:not(:disabled) {
+        background: linear-gradient(135deg, #1c7ed6, #1971c2);
+        transform: translateY(-1px);
+      }
+
+      .action-btn.secondary {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        color: #ffffff;
+      }
+
+      .action-btn.secondary:hover {
+        background: rgba(255, 255, 255, 0.1);
+      }
+
+      .action-btn.danger {
+        background: #e74c3c;
+        color: white;
+      }
+
+      .action-btn.danger:hover {
+        background: #c0392b;
+      }
+
+      .action-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      .action-btn.full-width {
+        width: 100%;
+        margin-top: 16px;
+      }
+
+      /* Actions Grid */
+      .actions-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 16px;
+        margin-bottom: 32px;
+      }
+
+      /* Right Panel */
+      .trending-panel {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        padding: 20px;
+      }
+
+      .panel-header {
+        margin-bottom: 20px;
+      }
+
+      .panel-title {
+        font-size: 18px;
+        font-weight: 600;
+        color: #ffffff;
+        margin: 0;
+      }
+
+      .overview-stats {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .overview-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 16px;
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+      }
+
+      .overview-icon {
+        font-size: 24px;
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 8px;
+      }
+
+      .overview-info {
+        flex: 1;
+      }
+
+      .overview-label {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.6);
+        margin-bottom: 4px;
+      }
+
+      .overview-value {
+        font-size: 16px;
+        font-weight: 600;
+        color: #ffffff;
+        font-family: 'Courier New', monospace;
+      }
+
+      /* Loading */
+      .loading {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 40px;
+      }
+
+      .spinner {
+        width: 32px;
+        height: 32px;
+        border: 3px solid rgba(255, 255, 255, 0.1);
+        border-top: 3px solid #2081e2;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+
+      /* Responsive Design */
+      @media (max-width: 1024px) {
+        .content-layout {
+          flex-direction: column;
+        }
+
+        .right-panel {
+          width: 100%;
+        }
+
+        .collection-header {
+          flex-direction: column;
+          text-align: center;
+        }
+
+        .verification-main {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+      }
+
+      @media (max-width: 768px) {
+        .main-content {
+          padding: 0 16px;
+        }
+
+        .header {
+          flex-direction: column;
+          gap: 16px;
+        }
+
+        .search-container {
+          margin-right: 0;
+          max-width: 100%;
+        }
+
+        .features-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .financial-cards {
+          grid-template-columns: 1fr;
+        }
+
+        .actions-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .verification-details {
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .card-actions {
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .withdraw-input {
+          width: 100%;
+        }
+      }
+    `}</style>
   );
 }
