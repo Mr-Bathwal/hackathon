@@ -44,7 +44,7 @@ Users can:
 
 ### 📸 Demo Screenshots  
 **Landing Page**  
-![Landing](screenshots/landing.png)  
+![Landing](https://github.com/Mr-Bathwal/hackathon/blob/main/screenshots/Screenshot%202025-08-22%20025119.png)  
 
 
 
